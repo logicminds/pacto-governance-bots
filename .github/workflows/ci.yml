@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e bots/bosun[dev]
+
+      - name: Secret scan
+        run: make secret-lint
+
+      - name: Compile check
+        run: python -m compileall bots/bosun/src/bosun
+
+      - name: Run tests
+        env:
+          PACTO_GOVERNANCE_RPC_URL: http://localhost:8545
+          PACTO_GOVERNANCE_BOT_ID: bosun
+          PACTO_GOVERNANCE_GROUP_ID: test-group
+          PACTO_GOVERNANCE_DAEMON_SOCKET: /tmp/pacto-test.sock
+        run: pytest bots/bosun/tests
