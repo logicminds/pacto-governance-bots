@@ -2,6 +2,9 @@ name: bosun
 
 services:
   daemon:
+    profiles:
+      - full
+      - daemon
     image: ghcr.io/covenant-gov/pacto-bot-api:latest
     environment:
       PACTO_DATA_DIR: /var/lib/pacto-bot-api
@@ -33,17 +36,21 @@ services:
       PACTO_GOVERNANCE_RPC_URL: ${PACTO_GOVERNANCE_RPC_URL:-}
       PACTO_GOVERNANCE_BOT_ID: ${PACTO_GOVERNANCE_BOT_ID:-bosun}
       PACTO_GOVERNANCE_GROUP_ID: ${PACTO_GOVERNANCE_GROUP_ID:-}
-      PACTO_GOVERNANCE_DAEMON_SOCKET: /run/pacto/pacto-bot-api.sock
+      PACTO_GOVERNANCE_DAEMON_SOCKET: ${PACTO_GOVERNANCE_DAEMON_SOCKET:-/run/pacto/pacto-bot-api.sock}
+      PACTO_GOVERNANCE_DAEMON_HTTP: ${PACTO_GOVERNANCE_DAEMON_HTTP:-}
+      PACTO_GOVERNANCE_HTTP_SECRET: ${PACTO_GOVERNANCE_HTTP_SECRET:-}
       PACTO_GOVERNANCE_CADENCE_SECONDS: ${PACTO_GOVERNANCE_CADENCE_SECONDS:-86400}
       PACTO_GOVERNANCE_SQUAD_INDEX: ${PACTO_GOVERNANCE_SQUAD_INDEX:-0}
       PACTO_GOVERNANCE_CAPTAIN: ${PACTO_GOVERNANCE_CAPTAIN:-0x0000000000000000000000000000000000000000}
       PACTO_GOVERNANCE_CREW_CANDIDATES: ${PACTO_GOVERNANCE_CREW_CANDIDATES:-}
       PACTO_GOVERNANCE_PROPOSER_CANDIDATES: ${PACTO_GOVERNANCE_PROPOSER_CANDIDATES:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - pacto-socket:/run/pacto:ro
-    depends_on:
-      daemon:
-        condition: service_started
+    # depends_on:
+    #   daemon:
+    #     condition: service_started
     restart: on-failure
 
   nip46-bunker:
