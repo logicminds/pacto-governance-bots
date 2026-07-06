@@ -1,5 +1,45 @@
-# Placeholder relay config for the local Nostr relay.
-#
-# Replace this file with the real relay-config.toml from pacto-dev-env before
-# running the full compose stack. The relay service in docker-compose.yml
-# mounts this file read-only at /usr/src/app/config.toml.
+# Nostr-rs-relay configuration for local Pacto development.
+# Mounted into the nostr-relay container at /usr/src/app/config.toml.
+
+[info]
+# Advertised URL for external clients connecting via the host port mapping.
+relay_url = "ws://localhost:7000/"
+
+name = "pacto-local-relay"
+description = "Local development relay for Pacto bots and apps."
+
+[diagnostics]
+tracing = false
+
+[database]
+engine = "sqlite"
+data_directory = "/usr/src/app/db"
+
+[logging]
+# Keep logs minimal for local development.
+#folder_path = "/usr/src/app/log"
+
+[network]
+address = "0.0.0.0"
+port = 8080
+
+[options]
+reject_future_seconds = 1800
+
+[limits]
+# Relaxed limits for local development.
+messages_per_sec = 0
+subscriptions_per_min = 0
+max_event_bytes = 262144
+max_ws_message_bytes = 262144
+max_ws_frame_bytes = 262144
+limit_scrapers = false
+
+[authorization]
+# Open local relay; no whitelist or NIP-42 auth.
+pubkey_whitelist = []
+nip42_auth = false
+nip42_dms = false
+
+[verified_users]
+mode = "disabled"
