@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from eth_utils import is_address, to_checksum_address
-from pydantic import Field, computed_field, field_validator, model_validator
+from pydantic import Field, ValidationError, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Sepolia infrastructure addresses, matching the Rust governance crate.
@@ -24,6 +24,46 @@ ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 def _is_nsec_like(value: str) -> bool:
     """Return True if a value looks like an nsec secret."""
     return value.startswith("nsec1")
+
+
+_REQUIRED_SETTINGS_EXAMPLE = """\
+Set the required variables, for example:
+
+  export PACTO_GOVERNANCE_RPC_URL="https://sepolia.infura.io/v3/YOUR_PROJECT_ID"
+  export PACTO_GOVERNANCE_BOT_ID="bosun"
+  export PACTO_GOVERNANCE_GROUP_ID="your-squad-group-id"
+  export PACTO_GOVERNANCE_DAEMON_SOCKET="/run/pacto/pacto-bot-api.sock"
+
+Or copy bots/bosun/.env.example to .env and fill in the values."""
+
+
+def format_settings_error(exc: BaseException) -> str:
+    """Return a human-readable message for a settings validation error.
+
+    The message names the environment variable responsible for each failure and
+    includes a copy-pasteable example so operators know what to set.
+    """
+    lines = [
+        "bosun: configuration error — required settings are missing or invalid.",
+        "",
+    ]
+
+    if isinstance(exc, ValidationError):
+        for err in exc.errors():
+            loc = err.get("loc", ())
+            msg = err.get("msg", "invalid value")
+            if loc and loc != ("__root__",):
+                field = loc[0]
+                env_name = f"PACTO_GOVERNANCE_{field.upper()}"
+                lines.append(f"  - {env_name}: {msg}")
+            else:
+                lines.append(f"  - {msg}")
+    else:
+        lines.append(f"  - {exc}")
+
+    lines.append("")
+    lines.append(_REQUIRED_SETTINGS_EXAMPLE)
+    return "\n".join(lines)
 
 
 class Settings(BaseSettings):
@@ -71,15 +111,21 @@ class Settings(BaseSettings):
         default=None, description="Optional JSON config overlay file"
     )
 
-    @field_validator("rpc_url", "daemon_http")
+    @field_validator("rpc_url")
     @classmethod
-    def _non_empty_url(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        stripped = value.strip()
+    def _non_empty_rpc_url(cls, value: str) -> str:
+        stripped = value.strip() if isinstance(value, str) else value
         if not stripped:
             raise ValueError("URL must not be empty")
         return stripped
+
+    @field_validator("daemon_http", "daemon_socket")
+    @classmethod
+    def _optional_transport(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped if stripped else None
 
     @field_validator("captain", "registry", "hats", mode="before")
     @classmethod

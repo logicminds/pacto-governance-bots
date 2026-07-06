@@ -15,7 +15,7 @@ from typing import Any
 
 from pacto_bot_sdk import Bot
 
-from bosun.config import load_settings
+from bosun.config import format_settings_error, load_settings
 from bosun.formatter import format_snapshot
 from bosun.reader import GovernanceReader
 from bosun.types import SnapshotData
@@ -57,49 +57,32 @@ class BosunBot(Bot):
         return 0
 
     def _parse_args(self, argv: list[str] | None = None) -> argparse.Namespace:
-        """Parse CLI arguments, including the bosun-specific trigger flag."""
-        parser = argparse.ArgumentParser(description=f"Pacto bot: {self.bot_id}")
-        parser.add_argument(
-            "--socket",
-            default=None,
-            help="Path to the daemon Unix socket.",
-        )
-        parser.add_argument(
-            "--data-dir",
-            default=None,
-            help="Data directory used to derive defaults.",
-        )
-        parser.add_argument(
-            "--transport",
-            default=None,
-            help="Transport to use (unix or http). Defaults to $PACTO_TRANSPORT or unix.",
-        )
-        parser.add_argument(
-            "--http-bind",
-            default=None,
-            help="HTTP bind address (default: $PACTO_HTTP_BIND or 127.0.0.1:9800).",
-        )
-        parser.add_argument(
-            "--secret",
-            default=None,
-            help="HTTP secret token (default: $PACTO_SECRET_TOKEN).",
-        )
-        parser.add_argument(
-            "--log-level",
-            default=None,
-            help="Set log level (debug, info, warn, error).",
-        )
-        parser.add_argument(
+        """Parse CLI arguments, including the bosun-specific trigger flag.
+
+        The base ``Bot`` parser owns retry/circuit/transport options; we
+        pre-parse only our custom flag so those options remain available and
+        forward-compatible with SDK updates.
+        """
+        pre_parser = argparse.ArgumentParser(add_help=False)
+        pre_parser.add_argument(
             "--trigger-snapshot",
             action="store_true",
+            default=False,
             help="Connect, publish KeyPackage, post one snapshot, and exit.",
         )
-        return parser.parse_args(argv)
+        pre_args, remaining_argv = pre_parser.parse_known_args(argv)
+        args = super()._parse_args(remaining_argv)
+        args.trigger_snapshot = pre_args.trigger_snapshot
+        return args
 
 
 # Module-level bot instance so the decorator API works and tests can import it.
-settings = load_settings()
-bot = BosunBot(settings=settings, **settings.to_bot_transport_kwargs())
+try:
+    settings = load_settings()
+    bot = BosunBot(settings=settings, **settings.to_bot_transport_kwargs())
+except ValueError as exc:
+    print(format_settings_error(exc), file=sys.stderr, flush=True)
+    sys.exit(1)
 
 
 async def setup(bot: BosunBot) -> None:
@@ -165,12 +148,13 @@ async def cadence_loop(bot: BosunBot) -> None:
     """Fire the snapshot routine at the configured interval.
 
     Skips ticks when the bot is not yet registered/connected, and on first
-    start waits for the initial setup to complete.
+    start waits for the initial setup to complete. Exits promptly when the
+    SDK's shutdown event is set (e.g. on SIGINT/SIGTERM).
     """
     # Wait for setup to finish before the first tick.
     await asyncio.sleep(0.5)
 
-    while True:
+    while not bot._shutdown.is_set():
         # Check whether the bot is registered with the daemon. _handler_id is set
         # by the Bot class after a successful handler.register call.
         if not getattr(bot, "_handler_id", None):
@@ -180,7 +164,14 @@ async def cadence_loop(bot: BosunBot) -> None:
                 await snapshot(bot)
             except Exception as exc:  # noqa: BLE001
                 bot.log(f"cadence tick failed: {exc}")
-        await asyncio.sleep(bot.settings.cadence_seconds)
+
+        try:
+            # Sleep, but wake immediately if the SDK signals shutdown.
+            await asyncio.wait_for(
+                bot._shutdown.wait(), timeout=bot.settings.cadence_seconds
+            )
+        except asyncio.TimeoutError:
+            pass
 
 
 async def trigger_once(bot: BosunBot) -> int:

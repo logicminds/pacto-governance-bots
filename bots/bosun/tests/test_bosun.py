@@ -209,3 +209,26 @@ async def test_cadence_loop_skips_when_not_registered(monkeypatch):
     except asyncio.CancelledError:
         pass
     assert snapshots == []
+
+
+@pytest.mark.asyncio
+async def test_cadence_loop_exits_on_shutdown(monkeypatch):
+    """cadence_loop returns promptly when the SDK's shutdown event is set."""
+    from bosun.bosun import cadence_loop
+
+    b = _make_bot()
+    b.settings.cadence_seconds = 10.0  # long sleep that we should not wait for
+
+    async def fake_snapshot(bot):
+        return None
+
+    monkeypatch.setattr("bosun.bosun.snapshot", fake_snapshot)
+    b._handler_id = "registered"
+
+    task = asyncio.create_task(cadence_loop(b))
+    # Give the loop time to start its first tick, then signal shutdown.
+    await asyncio.sleep(0.05)
+    b._shutdown.set()
+
+    await task
+    assert True

@@ -12,6 +12,7 @@ venv/
 /data
 *.log
 .env*
+!.env.example
 
 # Pacto/harness local directories
 .pacto/
