@@ -15,7 +15,7 @@ from typing import Any
 
 from pacto_bot_sdk import Bot
 
-from bosun.config import load_settings
+from bosun.config import format_settings_error, load_settings
 from bosun.formatter import format_snapshot
 from bosun.reader import GovernanceReader
 from bosun.types import SnapshotData
@@ -77,8 +77,12 @@ class BosunBot(Bot):
 
 
 # Module-level bot instance so the decorator API works and tests can import it.
-settings = load_settings()
-bot = BosunBot(settings=settings, **settings.to_bot_transport_kwargs())
+try:
+    settings = load_settings()
+    bot = BosunBot(settings=settings, **settings.to_bot_transport_kwargs())
+except ValueError as exc:
+    print(format_settings_error(exc), file=sys.stderr, flush=True)
+    sys.exit(1)
 
 
 async def setup(bot: BosunBot) -> None:
