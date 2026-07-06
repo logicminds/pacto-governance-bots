@@ -91,6 +91,23 @@ def test_settings_invalid_address_raises(monkeypatch):
         Settings()
 
 
+def test_settings_optional_transport_empty_string_is_unset(monkeypatch):
+    """Empty optional transport env vars are treated as not set."""
+    _set_required(monkeypatch)
+    # daemon_socket is already set by _set_required; empty daemon_http becomes None.
+    monkeypatch.setenv("PACTO_GOVERNANCE_DAEMON_HTTP", "  ")
+    settings = Settings()
+    assert settings.daemon_http is None
+
+    # Conversely, empty daemon_socket becomes None while daemon_http is valid.
+    monkeypatch.setenv("PACTO_GOVERNANCE_DAEMON_SOCKET", "")
+    monkeypatch.setenv("PACTO_GOVERNANCE_DAEMON_HTTP", "http://127.0.0.1:9800")
+    monkeypatch.setenv("PACTO_GOVERNANCE_HTTP_SECRET", "secret")
+    settings = Settings()
+    assert settings.daemon_socket is None
+    assert settings.daemon_http == "http://127.0.0.1:9800"
+
+
 def test_settings_missing_required_raises(monkeypatch):
     # Set an empty RPC URL so the env file (if present) is overridden and the
     # non-empty URL validator fires.

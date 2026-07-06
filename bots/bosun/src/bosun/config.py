@@ -111,15 +111,21 @@ class Settings(BaseSettings):
         default=None, description="Optional JSON config overlay file"
     )
 
-    @field_validator("rpc_url", "daemon_http")
+    @field_validator("rpc_url")
     @classmethod
-    def _non_empty_url(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        stripped = value.strip()
+    def _non_empty_rpc_url(cls, value: str) -> str:
+        stripped = value.strip() if isinstance(value, str) else value
         if not stripped:
             raise ValueError("URL must not be empty")
         return stripped
+
+    @field_validator("daemon_http", "daemon_socket")
+    @classmethod
+    def _optional_transport(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped if stripped else None
 
     @field_validator("captain", "registry", "hats", mode="before")
     @classmethod
