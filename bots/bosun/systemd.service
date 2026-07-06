@@ -7,10 +7,13 @@ Type=simple
 User=pacto-bot
 Group=pacto-bot
 WorkingDirectory=/opt/bosun
-ExecStart=/usr/local/bin/python3 bosun.py
+ExecStart=/usr/local/bin/python3 -m bosun
 Restart=on-failure
 Environment="PACTO_TRANSPORT=unix"
 Environment="PACTO_SOCKET_PATH=/run/pacto-bot-api.sock"
+Environment="PACTO_GOVERNANCE_BOT_ID=bosun"
+Environment="PACTO_GOVERNANCE_DAEMON_SOCKET=/run/pacto-bot-api.sock"
+EnvironmentFile=-/etc/bosun/bosun.env
 
 [Install]
 WantedBy=multi-user.target

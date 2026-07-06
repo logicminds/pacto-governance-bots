@@ -92,7 +92,9 @@ def test_settings_invalid_address_raises(monkeypatch):
 
 
 def test_settings_missing_required_raises(monkeypatch):
-    monkeypatch.delenv("PACTO_GOVERNANCE_RPC_URL", raising=False)
+    # Set an empty RPC URL so the env file (if present) is overridden and the
+    # non-empty URL validator fires.
+    monkeypatch.setenv("PACTO_GOVERNANCE_RPC_URL", "")
     monkeypatch.setenv("PACTO_GOVERNANCE_BOT_ID", "bosun")
     monkeypatch.setenv("PACTO_GOVERNANCE_GROUP_ID", "test-group")
     monkeypatch.setenv("PACTO_GOVERNANCE_DAEMON_SOCKET", "/tmp/pacto-test.sock")
