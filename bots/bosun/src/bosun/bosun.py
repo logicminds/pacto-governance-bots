@@ -148,12 +148,13 @@ async def cadence_loop(bot: BosunBot) -> None:
     """Fire the snapshot routine at the configured interval.
 
     Skips ticks when the bot is not yet registered/connected, and on first
-    start waits for the initial setup to complete.
+    start waits for the initial setup to complete. Exits promptly when the
+    SDK's shutdown event is set (e.g. on SIGINT/SIGTERM).
     """
     # Wait for setup to finish before the first tick.
     await asyncio.sleep(0.5)
 
-    while True:
+    while not bot._shutdown.is_set():
         # Check whether the bot is registered with the daemon. _handler_id is set
         # by the Bot class after a successful handler.register call.
         if not getattr(bot, "_handler_id", None):
@@ -163,7 +164,14 @@ async def cadence_loop(bot: BosunBot) -> None:
                 await snapshot(bot)
             except Exception as exc:  # noqa: BLE001
                 bot.log(f"cadence tick failed: {exc}")
-        await asyncio.sleep(bot.settings.cadence_seconds)
+
+        try:
+            # Sleep, but wake immediately if the SDK signals shutdown.
+            await asyncio.wait_for(
+                bot._shutdown.wait(), timeout=bot.settings.cadence_seconds
+            )
+        except asyncio.TimeoutError:
+            pass
 
 
 async def trigger_once(bot: BosunBot) -> int:
