@@ -57,44 +57,23 @@ class BosunBot(Bot):
         return 0
 
     def _parse_args(self, argv: list[str] | None = None) -> argparse.Namespace:
-        """Parse CLI arguments, including the bosun-specific trigger flag."""
-        parser = argparse.ArgumentParser(description=f"Pacto bot: {self.bot_id}")
-        parser.add_argument(
-            "--socket",
-            default=None,
-            help="Path to the daemon Unix socket.",
-        )
-        parser.add_argument(
-            "--data-dir",
-            default=None,
-            help="Data directory used to derive defaults.",
-        )
-        parser.add_argument(
-            "--transport",
-            default=None,
-            help="Transport to use (unix or http). Defaults to $PACTO_TRANSPORT or unix.",
-        )
-        parser.add_argument(
-            "--http-bind",
-            default=None,
-            help="HTTP bind address (default: $PACTO_HTTP_BIND or 127.0.0.1:9800).",
-        )
-        parser.add_argument(
-            "--secret",
-            default=None,
-            help="HTTP secret token (default: $PACTO_SECRET_TOKEN).",
-        )
-        parser.add_argument(
-            "--log-level",
-            default=None,
-            help="Set log level (debug, info, warn, error).",
-        )
-        parser.add_argument(
+        """Parse CLI arguments, including the bosun-specific trigger flag.
+
+        The base ``Bot`` parser owns retry/circuit/transport options; we
+        pre-parse only our custom flag so those options remain available and
+        forward-compatible with SDK updates.
+        """
+        pre_parser = argparse.ArgumentParser(add_help=False)
+        pre_parser.add_argument(
             "--trigger-snapshot",
             action="store_true",
+            default=False,
             help="Connect, publish KeyPackage, post one snapshot, and exit.",
         )
-        return parser.parse_args(argv)
+        pre_args, remaining_argv = pre_parser.parse_known_args(argv)
+        args = super()._parse_args(remaining_argv)
+        args.trigger_snapshot = pre_args.trigger_snapshot
+        return args
 
 
 # Module-level bot instance so the decorator API works and tests can import it.
