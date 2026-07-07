@@ -28,7 +28,7 @@ class BosunBot(Bot):
         self.settings = settings
         super().__init__(
             bot_id=settings.bot_id,
-            capabilities=["SendGroupMessages"],
+            capabilities=["SendMessages"],
             event_types=[],
             **kwargs,
         )
