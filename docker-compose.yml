@@ -1,27 +1,6 @@
 name: bosun
 
 services:
-  daemon:
-    image: ghcr.io/covenant-gov/pacto-bot-api:latest
-    environment:
-      PACTO_DATA_DIR: /var/lib/pacto-bot-api
-      PACTO_SOCKET_PATH: /run/pacto/pacto-bot-api.sock
-      PACTO_RELAY_URL: ${PACTO_RELAY_URL:-ws://nostr-relay:8080}
-    volumes:
-      - pacto-data:/var/lib/pacto-bot-api
-      - pacto-socket:/run/pacto
-      - ./pacto-bot-api.toml:/etc/pacto/pacto-bot-api.toml:ro
-    depends_on:
-      nostr-relay:
-        condition: service_started
-    command:
-      - pacto-bot-api
-      - --config
-      - /etc/pacto/pacto-bot-api.toml
-      - --data-dir
-      - /var/lib/pacto-bot-api
-    restart: on-failure
-
   bosun:
     build:
       context: .
@@ -31,168 +10,24 @@ services:
       PACTO_GOVERNANCE_BOT_ID: ${PACTO_GOVERNANCE_BOT_ID:-bosun}
       PACTO_GOVERNANCE_GROUP_ID: ${PACTO_GOVERNANCE_GROUP_ID:-local-dev-squad}
       PACTO_GOVERNANCE_RPC_URL: ${PACTO_GOVERNANCE_RPC_URL:-http://anvil:8545}
-      PACTO_GOVERNANCE_DAEMON_SOCKET: /run/pacto/pacto-bot-api.sock
+      PACTO_GOVERNANCE_DAEMON_SOCKET: ${PACTO_GOVERNANCE_DAEMON_SOCKET:-/var/lib/pacto-bot-api/pacto-bot-api.sock}
       PACTO_GOVERNANCE_CADENCE_SECONDS: ${PACTO_GOVERNANCE_CADENCE_SECONDS:-86400}
       PACTO_GOVERNANCE_SQUAD_INDEX: ${PACTO_GOVERNANCE_SQUAD_INDEX:-0}
       PACTO_GOVERNANCE_CAPTAIN: ${PACTO_GOVERNANCE_CAPTAIN:-0x0000000000000000000000000000000000000000}
       PACTO_GOVERNANCE_CREW_CANDIDATES: ${PACTO_GOVERNANCE_CREW_CANDIDATES:-}
       PACTO_GOVERNANCE_PROPOSER_CANDIDATES: ${PACTO_GOVERNANCE_PROPOSER_CANDIDATES:-}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      PACTO_GOVERNANCE_REGISTRY: ${PACTO_GOVERNANCE_REGISTRY:-}
+      PACTO_GOVERNANCE_HATS: ${PACTO_GOVERNANCE_HATS:-}
+    networks:
+      - pacto
     volumes:
-      - pacto-socket:/run/pacto:ro
-    depends_on:
-      daemon:
-        condition: service_started
-      anvil:
-        condition: service_healthy
+      - pacto-bot-api-data:/var/lib/pacto-bot-api:ro
     restart: on-failure
 
-  nip46-bunker:
-    image: ghcr.io/covenant-gov/pacto-dev-env/nip46-bunker:main
-    profiles:
-      - with-bunker
-      - full
-    environment:
-      NODE_ENV: production
-      PORT: 3000
-      HOST: 0.0.0.0
-      DATABASE_URL: postgresql://bunker46:bunker46@nip46-bunker-db:5432/bunker46
-      JWT_SECRET: ${JWT_SECRET:-changeme-jwt-secret-must-be-at-least-32-characters-long}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-changeme-refresh-secret-must-be-at-least-32-characters-long}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-changeme-encryption-key-must-be-at-least-32-characters-long}
-      JWT_EXPIRES_IN: 15m
-      JWT_REFRESH_EXPIRES_IN: 7d
-      CORS_ORIGINS: http://localhost:8080
-      COOKIE_SECURE: ""
-      REDIS_URL: redis://nip46-bunker-redis:6379
-      LOG_LEVEL: info
-      ALLOW_REGISTRATION: false
-      NOSTR_DEFAULT_RELAYS: ""
-    depends_on:
-      nip46-bunker-db:
-        condition: service_healthy
-      nip46-bunker-redis:
-        condition: service_healthy
-    restart: unless-stopped
-    healthcheck:
-      test:
-        - CMD
-        - node
-        - -e
-        - "require('http').get('http://localhost:3000/api/auth/config',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-  nip46-bunker-db:
-    image: postgres:17-alpine
-    profiles:
-      - with-bunker
-      - full
-    environment:
-      POSTGRES_USER: bunker46
-      POSTGRES_PASSWORD: bunker46
-      POSTGRES_DB: bunker46
-    volumes:
-      - nip46-bunker-db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U bunker46"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  nip46-bunker-redis:
-    image: redis:8-alpine
-    profiles:
-      - with-bunker
-      - full
-    volumes:
-      - nip46-bunker-redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  nostr-relay:
-    image: ghcr.io/covenant-gov/pacto-dev-env/nostr-relay:main
-    container_name: bosun-nostr-relay
-    ports:
-      - "7000:8080"
-    volumes:
-      - ./docker/relay-config.toml:/usr/src/app/config.toml:ro
-      - nostr-relay-data:/usr/src/app/db
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - "wget -qO- http://localhost:8080/ >/dev/null 2>&1 || curl -fsS http://localhost:8080/ >/dev/null 2>&1"
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-    restart: unless-stopped
-
-
-  # Local EVM testnet for pacto-gov / sponsor / security-manager contracts
-  anvil:
-    image: anvil:latest
-    container_name: pacto-anvil
-    command:
-      - "--block-time"
-      - "2"
-      - "--host"
-      - "0.0.0.0"
-      - "--port"
-      - "8545"
-    ports:
-      - "8545:8545"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "cast", "block-number", "--rpc-url", "http://localhost:8545"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
-  # Aztec local network. Opt-in via `--profile aztec`: it needs ~8 GB RAM and
-  # an L1 RPC URL. Activate when working on pacto-aztec.
-  aztec-sandbox:
-    image: ghcr.io/covenant-gov/pacto-dev-env/aztec-sandbox:main
-    container_name: pacto-aztec-sandbox
-    profiles:
-      - aztec
-    command:
-      - "start"
-      - "--local-network"
-      - "--port"
-      - "8080"
-      - "--admin-port"
-      - "8880"
-      - "--data-directory"
-      - "/var/lib/aztec"
-      - "--l1-rpc-urls"
-      - "http://anvil:8545"
-    ports:
-      - "8080:8080"
-      - "8880:8880"
-    volumes:
-      - ./data/aztec:/var/lib/aztec
-    depends_on:
-      anvil:
-        condition: service_healthy
-    restart: on-failure:5
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8080/status"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 90s
+networks:
+  pacto:
+    external: true
 
 volumes:
-  pacto-data:
-  pacto-socket:
-  nostr-relay-data:
-  nip46-bunker-db-data:
-  nip46-bunker-redis-data:
+  pacto-bot-api-data:
+    external: true

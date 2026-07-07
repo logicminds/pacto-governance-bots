@@ -48,8 +48,8 @@ pacto-governance-bots/
 
 - Python 3.10+
 - `pacto-bot-admin` CLI (from `pacto-bot-api`)
-- A running `pacto-bot-api` daemon with a configured bot identity
-- For local contract testing: an anvil node with deployed Pacto-gov contracts
+- A running `pacto-bot-api` daemon with a configured bot identity (provided by [`pacto-dev-env`](https://github.com/covenant-gov/pacto-dev-env) for local development)
+- For local contract testing: the `pacto-dev-env` Anvil service with deployed Pacto-gov contracts (via `make seed`)
 
 ## Setup
 
@@ -110,16 +110,38 @@ Optional variables:
 | `PACTO_GOVERNANCE_CAPTAIN` | zero address | Captain address for Hats checks |
 | `PACTO_GOVERNANCE_CREW_CANDIDATES` | none | Comma-separated crew candidate addresses |
 | `PACTO_GOVERNANCE_PROPOSER_CANDIDATES` | none | Comma-separated proposer candidate addresses |
-| `PACTO_GOVERNANCE_REGISTRY` | Sepolia | Override NavePirataRegistry address |
-| `PACTO_GOVERNANCE_HATS` | Sepolia | Override Hats Protocol address |
+| `PACTO_GOVERNANCE_REGISTRY` | Sepolia | Override NavePirataRegistry address. When using Anvil, set this to the `navePirataRegistry` value from `pacto-dev-env/data/deployments/31337/full-system.json`. |
+| `PACTO_GOVERNANCE_HATS` | Sepolia | Override Hats Protocol address. When using Anvil, set this to the `hats` value from `pacto-dev-env/data/deployments/31337/full-system.json`. |
 
-### 5. Start the daemon
+### 5. Start the bot (Docker Compose)
+
+For local development, start the backing services in `pacto-dev-env` first:
 
 ```bash
-pacto-bot-api --config pacto-bot-api.toml --data-dir ./data
+cd /path/to/pacto-dev-env
+make up          # default stack: relay + anvil + pacto-bot-api
+# or, to also deploy Pacto governance contracts to Anvil:
+make up-all
 ```
 
-### 6. Run the bot
+Then start the bot from this repository:
+
+```bash
+cd /path/to/pacto-governance-bots
+cp bots/bosun/.env.example bots/bosun/.env
+# edit bots/bosun/.env with the deployed anvil addresses if applicable
+
+docker compose up -d --build
+```
+
+The bot container attaches to the `pacto` network from `pacto-dev-env` and
+reads the daemon socket from the shared `pacto-bot-api-data` volume. It uses
+service names instead of `localhost`:
+
+- `http://anvil:8545` for the EVM RPC
+- `/var/lib/pacto-bot-api/pacto-bot-api.sock` for the daemon socket
+
+### 6. Run the bot locally (without Docker)
 
 ```bash
 source .venv/bin/activate
