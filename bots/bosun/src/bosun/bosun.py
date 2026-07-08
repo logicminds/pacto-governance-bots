@@ -43,7 +43,7 @@ class BosunBot(Bot):
         - All other events (including the existing ``/snapshot`` slash command)
           are delegated to the base class.
         """
-        content = event.content.strip()
+        content = (event.content or "").strip()
 
         if event.type == "mls_group_message_received":
             if getattr(self, "own_pubkey", None) and event.author == self.own_pubkey:
@@ -59,7 +59,7 @@ class BosunBot(Bot):
             return
 
         if event.type == "dm_received":
-            if content.startswith("!snapshot"):
+            if content.split() and content.split()[0] == "!snapshot":
                 tokens = content.split()
                 if len(tokens) >= 2:
                     squad_id = tokens[1]
@@ -85,7 +85,7 @@ class BosunBot(Bot):
     async def _handle_rate_limited(self, notification: AgentRateLimitedParams) -> None:
         """Post a rate-limit explanation in the affected Squad."""
         group_id = notification.group_id
-        window = getattr(notification, "window_seconds", 60)
+        window = getattr(notification, "window_seconds", None) or 60
         if not group_id:
             self.log("warning: agent.rate_limited without group_id")
             return
@@ -191,6 +191,9 @@ async def is_squad_member(bot: BosunBot, group_id: str, member_pubkey: str) -> b
 async def snapshot(bot: BosunBot, group_id: str | None = None) -> SnapshotData | None:
     """Read governance state, format it, and post to the configured group."""
     destination = group_id if group_id is not None else bot.settings.group_id
+    if not destination:
+        bot.log("warning: refusing snapshot with empty group_id")
+        return None
     settings = bot.settings
     reader = GovernanceReader.from_url(
         settings.rpc_url, settings.registry, settings.hats
