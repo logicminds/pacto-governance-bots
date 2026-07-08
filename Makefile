@@ -1,4 +1,4 @@
-.PHONY: test validate secret-lint install clean
+.PHONY: test validate secret-lint install env health-check clean
 
 PYTHON := python3
 VENV := .venv
@@ -9,6 +9,12 @@ $(VENV)/bin/activate:
 
 install: $(VENV)/bin/activate
 	$(VENV)/bin/pip install -e $(BOT_DIR)
+
+env:
+	@./scripts/generate-env.sh
+
+health-check:
+	@./scripts/health-check.sh
 
 test:
 	$(VENV)/bin/pip install -e $(BOT_DIR)[dev]

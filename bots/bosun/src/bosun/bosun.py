@@ -28,7 +28,7 @@ class BosunBot(Bot):
         self.settings = settings
         super().__init__(
             bot_id=settings.bot_id,
-            capabilities=["SendMessages"],
+            capabilities=["SendGroupMessages"],
             event_types=[],
             **kwargs,
         )
@@ -86,8 +86,9 @@ except ValueError as exc:
 
 
 async def setup(bot: BosunBot) -> None:
-    """Publish the bot's KeyPackage so it can be invited to a Squad."""
+    """Connect to the daemon and publish the bot's KeyPackage so it can be invited to a Squad."""
     try:
+        await bot.client.connect()
         result = await bot.client.agent_publish_key_package(bot_id=bot.bot_id)
         bot.log(f"published KeyPackage: {result}")
     except Exception as exc:  # noqa: BLE001
@@ -176,7 +177,6 @@ async def cadence_loop(bot: BosunBot) -> None:
 
 async def trigger_once(bot: BosunBot) -> int:
     """Connect, publish KeyPackage, post a snapshot, and exit."""
-    await bot.client.connect()
     await setup(bot)
     data = await snapshot(bot)
     await bot.client.close()

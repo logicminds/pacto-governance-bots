@@ -48,8 +48,27 @@ pacto-governance-bots/
 
 - Python 3.10+
 - `pacto-bot-admin` CLI (from `pacto-bot-api`)
-- A running `pacto-bot-api` daemon with a configured bot identity (provided by [`pacto-dev-env`](https://github.com/covenant-gov/pacto-dev-env) for local development)
+- For the complete cross-repo walkthrough, see [SETUP.md](SETUP.md).
 - For local contract testing: the `pacto-dev-env` Anvil service with deployed Pacto-gov contracts (via `make seed`)
+
+## Quick start
+
+```bash
+cd /path/to/pacto-dev-env
+make up-all          # start relay + anvil + pacto-bot-api + seed
+make seed-squad      # create the MLS Squad and provision the bot
+```
+
+Then, in `pacto-governance-bots`:
+
+```bash
+make env             # generate bots/bosun/.env from the local deployment
+make health-check    # verify the integration is alive
+```
+
+This writes registry, Hats, RPC, and daemon-socket placeholders into
+`bots/bosun/.env`. Set `PACTO_GOVERNANCE_GROUP_ID` manually or export it before
+starting the bot. Set `PRESERVE_ENV=1 make env` to keep an existing `.env`.
 
 ## Setup
 
@@ -83,7 +102,19 @@ pip install -e bots/bosun
 
 ### 4. Configure environment variables
 
-Copy the example file and fill in the real values:
+For local development with `pacto-dev-env`, run the generator first:
+
+```bash
+make env
+```
+
+It reads `../pacto-dev-env/data/deployments/31337/full-system.json`
+(respecting `PACTO_DEV_ENV_DIR`) and writes `bots/bosun/.env` with the
+deployed registry and Hats addresses, the anvil RPC endpoint, and the daemon
+socket path. Set `PRESERVE_ENV=1` to keep an already-edited `.env`. Then add
+the missing values (at least `PACTO_GOVERNANCE_GROUP_ID`).
+
+For non-local deployments, copy the example file and fill in the real values:
 
 ```bash
 cp bots/bosun/.env.example bots/bosun/.env

@@ -82,7 +82,7 @@ class GovernanceReader:
         squads = await self.discover_squads()
         if not squads:
             raise GovernanceError(
-                f"invalid squad index {squad_index} (no deployments in registry)"
+                f"invalid squad index {squad_index} (no deployments in registry; run 'make seed-squad' in pacto-dev-env)"
             )
         if squad_index < 0 or squad_index >= len(squads):
             raise GovernanceError(

@@ -66,16 +66,22 @@ class _FailingReader:
 
 
 @pytest.mark.asyncio
-async def test_setup_publishes_key_package(monkeypatch):
+async def test_setup_connects_and_publishes_key_package(monkeypatch):
     b = _make_bot()
     calls = []
+    connected = []
+
+    async def fake_connect():
+        connected.append(True)
 
     async def fake_publish(bot_id):
         calls.append(bot_id)
         return "keypackage-event-id"
 
+    monkeypatch.setattr(b.client, "connect", fake_connect)
     monkeypatch.setattr(b.client, "agent_publish_key_package", fake_publish)
     await setup(b)
+    assert connected
     assert calls == ["bosun"]
 
 
@@ -83,10 +89,10 @@ async def test_setup_publishes_key_package(monkeypatch):
 async def test_setup_continues_on_error(monkeypatch):
     b = _make_bot()
 
-    async def fake_publish(_bot_id):
+    async def fake_connect():
         raise RuntimeError("daemon refused")
 
-    monkeypatch.setattr(b.client, "agent_publish_key_package", fake_publish)
+    monkeypatch.setattr(b.client, "connect", fake_connect)
     # Should not raise.
     await setup(b)
 
