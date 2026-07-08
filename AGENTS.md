@@ -9,16 +9,25 @@ bot identities, Nostr relay connections, and encrypted messaging. The Python
 bot handler in `bots/` connects to the daemon over a Unix socket or HTTP using
 the `pacto_bot_sdk` SDK.
 
+Local development relies on the sibling [`pacto-dev-env`](https://github.com/covenant-gov/pacto-dev-env)
+repository, which provides the Nostr relay, Anvil EVM testnet, optional Aztec
+sandbox, optional NIP-46 bunker, and the `pacto-bot-api` daemon. This
+repository's `docker-compose.yml` only defines the `bosun` bot service and
+attaches to the shared `pacto` network and daemon socket volume from
+`pacto-dev-env`.
+
 ## Key files
 
 - `pacto-bot-api.toml` — daemon configuration with bot identities, relays, and
-  signing backends. Created by `pacto-bot-admin`. Treat as secret; contains or
-  references signing material.
-- `docker-compose.yml` — local orchestration. Default stack: daemon + bot.
-  Use `--profile with-bunker` to add the NIP-46 bunker, `--profile relay` to
-  add an internal Nostr relay, or `--profile full` for everything. Set
-  `PACTO_RELAY_URL` and `PACTO_BUNKER_URI` to point to internal or external
-  services.
+  signing backends. Created by `pacto-bot-admin` inside the `pacto-dev-env`
+  repository. Treat as secret; contains or references signing material. This
+  bot repository does not generate or store the daemon config.
+- `docker-compose.yml` — local bot orchestration. Defines only the `bosun`
+  bot service. It expects the `pacto` network and `pacto-bot-api-data` volume
+  to exist (created by `pacto-dev-env`). Start `pacto-dev-env` first, then
+  run `docker compose up -d` from this repo.
+- `bots/bosun/.env.example` — environment variables for the bot. Fill these in
+  and copy to `bots/bosun/.env` or export them before running the bot.
 - `bots/bosun/bosun.py` — the bot handler entry point.
 - `bots/bosun/pyproject.toml` — Python package metadata for the bot. The
   bot depends on the `pacto-bot-sdk` PyPI package.
