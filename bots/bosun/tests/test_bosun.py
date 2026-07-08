@@ -1,4 +1,8 @@
-"""Unit tests for the bosun bot wiring, cadence, and trigger modes."""
+"""Unit tests for the bosun bot wiring, cadence, trigger modes, and inbound
+``!snapshot`` event handlers.
+
+Slash-command tests for ``/snapshot`` live in ``test_handlers.py``.
+"""
 
 from __future__ import annotations
 
@@ -298,24 +302,6 @@ async def test_mls_group_message_non_snapshot_ignored(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_mls_group_message_from_bot_ignored(monkeypatch):
-    b = _make_bot()
-    b.own_pubkey = "bot-pubkey"
-    calls = []
-
-    async def fake_snapshot(bot, group_id=None):
-        calls.append((bot, group_id))
-
-    monkeypatch.setattr("bosun.bosun.snapshot", fake_snapshot)
-
-    event = _FakeEvent(
-        content="!snapshot", chat_id="group-123", author="bot-pubkey"
-    )
-    await b._handle_event(event)
-    assert calls == []
-
-
-@pytest.mark.asyncio
 async def test_mls_group_message_missing_chat_id_logs_warning(monkeypatch):
     b = _make_bot()
     logs = []
@@ -548,7 +534,88 @@ async def test_dm_snapshot_without_squad_id_falls_through(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_dm_snapshot_slash_command_still_works(monkeypatch):
+async def test_snapshot_empty_group_id_skips_send(monkeypatch):
+    b = _make_bot()
+    sent = []
+    logs = []
+
+    async def fake_send(*args, **kwargs):
+        sent.append(args)
+
+    monkeypatch.setattr(b.client, "agent_send_group_message", fake_send)
+    monkeypatch.setattr(b, "log", lambda msg: logs.append(msg))
+    monkeypatch.setattr("bosun.bosun.GovernanceReader", _FakeReader)
+
+    result = await snapshot(b, group_id="")
+    assert result is None
+    assert sent == []
+    assert any("empty group_id" in msg for msg in logs)
+
+
+@pytest.mark.asyncio
+async def test_snapshot_empty_group_id_none_destination(monkeypatch):
+    b = _make_bot()
+    b.settings.group_id = ""
+    sent = []
+
+    async def fake_send(*args, **kwargs):
+        sent.append(args)
+
+    monkeypatch.setattr(b.client, "agent_send_group_message", fake_send)
+    monkeypatch.setattr("bosun.bosun.GovernanceReader", _FakeReader)
+
+    result = await snapshot(b)
+    assert result is None
+    assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_mls_group_message_acknowledges_event(monkeypatch):
+    b = _make_bot()
+    responses = []
+    calls = []
+
+    async def fake_handler_response(*args, **kwargs):
+        responses.append((args, kwargs))
+
+    async def fake_snapshot(bot, group_id=None):
+        calls.append((bot, group_id))
+
+    monkeypatch.setattr(b.client, "handler_response", fake_handler_response)
+    monkeypatch.setattr("bosun.bosun.snapshot", fake_snapshot)
+
+    event = _FakeEvent(content="!snapshot", chat_id="group-123")
+    await b._handle_event(event)
+    assert len(responses) == 1
+    assert responses[0][1].get("action") == "ignore"
+    assert responses[0][1].get("event_id") == event.event_id
+
+
+@pytest.mark.asyncio
+async def test_dm_snapshot_acknowledges_event(monkeypatch):
+    b = _make_bot()
+    responses = []
+
+    async def fake_handler_response(*args, **kwargs):
+        responses.append((args, kwargs))
+
+    async def fake_is_squad_member(*args, **kwargs):
+        return AgentIsSquadMemberResponse(is_member=True)
+
+    monkeypatch.setattr(b.client, "handler_response", fake_handler_response)
+    monkeypatch.setattr(b.client, "agent_is_squad_member", fake_is_squad_member)
+    monkeypatch.setattr("bosun.bosun.snapshot", lambda *args, **kwargs: None)
+
+    event = _FakeEvent(type="dm_received", content="!snapshot group-123", chat_id="dm-chat-id")
+    await b._handle_event(event)
+    assert len(responses) == 1
+    assert responses[0][1].get("action") == "ignore"
+    assert responses[0][1].get("event_id") == event.event_id
+
+
+@pytest.mark.asyncio
+async def test_dm_snapshot_loose_prefix_ignored(monkeypatch):
+    b = _make_bot()
     snapshots = []
     responses = []
 
@@ -559,11 +626,116 @@ async def test_dm_snapshot_slash_command_still_works(monkeypatch):
         responses.append((args, kwargs))
 
     monkeypatch.setattr("bosun.bosun.snapshot", fake_snapshot)
-    monkeypatch.setattr(bot.client, "handler_response", fake_handler_response)
+    monkeypatch.setattr(b.client, "handler_response", fake_handler_response)
+
+    event = _FakeEvent(type="dm_received", content="!snapshotfoo", chat_id="dm-chat-id")
+    await b._handle_event(event)
+    assert snapshots == []
+    assert len(responses) == 1
+    assert responses[0][1].get("action") == "ignore"
+
+
+@pytest.mark.asyncio
+async def test_dm_snapshot_extra_spaces(monkeypatch):
+    b = _make_bot()
+    snapshots = []
+
+    async def fake_is_squad_member(*args, **kwargs):
+        return AgentIsSquadMemberResponse(is_member=True)
+
+    async def fake_snapshot(bot, group_id=None):
+        snapshots.append((bot, group_id))
+
+    monkeypatch.setattr(b.client, "agent_is_squad_member", fake_is_squad_member)
+    monkeypatch.setattr(b.client, "handler_response", lambda *args, **kwargs: None)
+    monkeypatch.setattr("bosun.bosun.snapshot", fake_snapshot)
+
+    event = _FakeEvent(type="dm_received", content="!snapshot  group-123", chat_id="dm-chat-id")
+    await b._handle_event(event)
+    assert snapshots == [(b, "group-123")]
+
+
+@pytest.mark.asyncio
+async def test_dm_snapshot_rate_limit_blocked(monkeypatch):
+    b = _make_bot()
+    snapshots = []
+    logs = []
+
+    async def fake_is_squad_member(*args, **kwargs):
+        return AgentIsSquadMemberResponse(is_member=True)
+
+    async def fake_snapshot(bot, group_id=None):
+        snapshots.append((bot, group_id))
+
+    monkeypatch.setattr(b.client, "agent_is_squad_member", fake_is_squad_member)
+    monkeypatch.setattr(b.client, "handler_response", lambda *args, **kwargs: None)
+    monkeypatch.setattr(b, "log", lambda msg: logs.append(msg))
+    monkeypatch.setattr("bosun.bosun.snapshot", fake_snapshot)
+
+    event = _FakeEvent(type="dm_received", content="!snapshot group-123", chat_id="dm-chat-id")
+    await b._handle_event(event)
+    assert snapshots == [(b, "group-123")]
+
+    # Second request within the rate-limit window should be ignored.
+    await b._handle_event(event)
+    assert snapshots == [(b, "group-123")]
+    assert any("rate-limiting" in msg for msg in logs)
+
+
+@pytest.mark.asyncio
+async def test_rate_limited_window_zero_clamped(monkeypatch):
+    b = _make_bot()
+    sent = []
+
+    async def fake_send(bot_id, content, group_id):
+        sent.append(content)
+
+    monkeypatch.setattr(b.client, "agent_send_group_message", fake_send)
+
+    await b._handle_rate_limited(
+        AgentRateLimitedParams(bot_id="bosun", group_id="squad-1", window_seconds=0)
+    )
+    assert sent and "~1 second" in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_rate_limited_window_negative_clamped(monkeypatch):
+    b = _make_bot()
+    sent = []
+
+    async def fake_send(bot_id, content, group_id):
+        sent.append(content)
+
+    monkeypatch.setattr(b.client, "agent_send_group_message", fake_send)
+
+    await b._handle_rate_limited(
+        AgentRateLimitedParams(bot_id="bosun", group_id="squad-1", window_seconds=-10)
+    )
+    assert sent and "~1 second" in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_dm_snapshot_slash_command_still_works(monkeypatch):
+    snapshots = []
+    responses = []
+
+    async def fake_snapshot(bot, group_id=None):
+        snapshots.append((bot, group_id))
+
+    async def fake_handler_response(*args, **kwargs):
+        responses.append((args, kwargs))
+
+    b = _make_bot()
+    # Copy the module-level command/default registrations so the test is
+    # isolated from the global bot instance and environment variables.
+    b._commands = dict(bot._commands)
+    b._default_handler = bot._default_handler
+
+    monkeypatch.setattr("bosun.bosun.snapshot", fake_snapshot)
+    monkeypatch.setattr(b.client, "handler_response", fake_handler_response)
 
     event = _FakeEvent(type="dm_received", content="/snapshot", chat_id="dm-chat-id")
-    # Use the module-level bot instance so the registered /snapshot command is available.
-    await bot._handle_event(event)
+    await b._handle_event(event)
     assert len(snapshots) == 1
     assert snapshots[0][1] is None
     assert len(responses) == 1
