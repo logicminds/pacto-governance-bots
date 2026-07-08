@@ -13,7 +13,7 @@ import sys
 import time
 from typing import Any
 
-from pacto_bot_sdk import Bot
+from pacto_bot_sdk import AgentEventParams, AgentRateLimitedParams, AgentStatusParams, Bot
 
 from bosun.config import format_settings_error, load_settings
 from bosun.formatter import format_snapshot
@@ -28,10 +28,93 @@ class BosunBot(Bot):
         self.settings = settings
         super().__init__(
             bot_id=settings.bot_id,
-            capabilities=["SendGroupMessages"],
-            event_types=[],
+            capabilities=["SendGroupMessages", "ReceiveGroupMessages"],
+            event_types=["dm_received", "mls_group_message_received"],
             **kwargs,
         )
+
+    async def _handle_event(self, event: AgentEventParams) -> None:
+        """Route inbound events to the appropriate handler.
+
+        - ``mls_group_message_received`` with ``!snapshot`` triggers a snapshot in the
+          originating Squad.
+        - ``dm_received`` with ``!snapshot <squad-id>`` verifies membership before
+          triggering a snapshot in that Squad.
+        - All other events (including the existing ``/snapshot`` slash command)
+          are delegated to the base class.
+        """
+        content = event.content.strip()
+
+        if event.type == "mls_group_message_received":
+            if getattr(self, "own_pubkey", None) and event.author == self.own_pubkey:
+                return
+            if event.chat_id is None:
+                self.log("warning: mls_group_message_received without chat_id")
+                return
+            if content == "!snapshot":
+                try:
+                    await snapshot(self, group_id=event.chat_id)
+                except Exception as exc:  # noqa: BLE001
+                    self.log(f"error: snapshot handler failed: {exc}")
+            return
+
+        if event.type == "dm_received":
+            if content.startswith("!snapshot"):
+                tokens = content.split()
+                if len(tokens) >= 2:
+                    squad_id = tokens[1]
+                    try:
+                        is_member = await is_squad_member(self, squad_id, event.author)
+                    except Exception as exc:  # noqa: BLE001
+                        self.log(f"warning: membership check failed: {exc}")
+                        return
+                    if is_member:
+                        try:
+                            await snapshot(self, group_id=squad_id)
+                        except Exception as exc:  # noqa: BLE001
+                            self.log(f"error: snapshot handler failed: {exc}")
+                    else:
+                        self.log(
+                            f"warning: {event.author} is not a member of {squad_id}"
+                        )
+                    return
+                # No squad id: fall through to slash-command handling.
+
+        await super()._handle_event(event)
+
+    async def _handle_rate_limited(self, notification: AgentRateLimitedParams) -> None:
+        """Post a rate-limit explanation in the affected Squad."""
+        group_id = notification.group_id
+        window = getattr(notification, "window_seconds", 60)
+        if not group_id:
+            self.log("warning: agent.rate_limited without group_id")
+            return
+
+        content = (
+            f"> Rate limit: one snapshot per minute per Squad. "
+            f"Try again in ~{window} seconds."
+        )
+        try:
+            await self.client.agent_send_group_message(
+                bot_id=self.bot_id,
+                content=content,
+                group_id=group_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.log(f"error: failed to send rate-limit message: {exc}")
+
+    async def _dispatch_loop(self) -> None:
+        """Consume daemon notifications and dispatch to the right handler."""
+        try:
+            async for notification in self._client.notifications():
+                if isinstance(notification, AgentRateLimitedParams):
+                    await self._handle_rate_limited(notification)
+                elif isinstance(notification, AgentEventParams):
+                    await self._handle_event(notification)
+                elif isinstance(notification, AgentStatusParams):
+                    await super()._handle_status(notification)
+        except asyncio.CancelledError:
+            pass
 
     async def run_async(self, argv: list[str] | None = None) -> None:
         """Run the daemon dispatch loop with the configured retry/circuit logic."""
@@ -95,8 +178,19 @@ async def setup(bot: BosunBot) -> None:
         bot.log(f"warning: failed to publish KeyPackage: {exc}")
 
 
-async def snapshot(bot: BosunBot) -> SnapshotData | None:
+async def is_squad_member(bot: BosunBot, group_id: str, member_pubkey: str) -> bool:
+    """Return True when ``member_pubkey`` is a member of the given Squad."""
+    response = await bot.client.agent_is_squad_member(
+        bot_id=bot.bot_id,
+        group_id=group_id,
+        member_pubkey=member_pubkey,
+    )
+    return response.is_member
+
+
+async def snapshot(bot: BosunBot, group_id: str | None = None) -> SnapshotData | None:
     """Read governance state, format it, and post to the configured group."""
+    destination = group_id if group_id is not None else bot.settings.group_id
     settings = bot.settings
     reader = GovernanceReader.from_url(
         settings.rpc_url, settings.registry, settings.hats
@@ -117,7 +211,7 @@ async def snapshot(bot: BosunBot) -> SnapshotData | None:
         result = await bot.client.agent_send_group_message(
             bot_id=bot.bot_id,
             content=markdown,
-            group_id=settings.group_id,
+            group_id=destination,
         )
         bot.log(f"posted snapshot: {result}")
     except Exception as exc:  # noqa: BLE001
