@@ -1,4 +1,8 @@
-"""Unit tests for the bosun /snapshot handler and default fallback."""
+"""Unit tests for the bosun ``/snapshot`` slash handler and default fallback.
+
+Inbound ``!snapshot`` event tests (group message and DM) live in
+``test_bosun.py``.
+"""
 
 from __future__ import annotations
 

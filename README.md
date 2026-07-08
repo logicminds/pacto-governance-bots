@@ -220,9 +220,65 @@ run the gated integration procedure described in `bots/bosun/tests/README.md`.
 
 ## Phase 2
 
-Inbound `!snapshot` invocation from the Squad channel is deferred. The
-`/snapshot` handler is already implemented; Phase 2 only registers
-`ReceiveGroupMessages` and routes inbound events to the existing handler.
+Phase 2 adds inbound triggers so squad members can request a snapshot without
+operator access to the bot.
+
+### `!snapshot` in a Squad channel
+
+Any member of an MLS Squad where the bot is present can type:
+
+```
+!snapshot
+```
+
+The daemon decrypts the group message and delivers it to the bot as an
+`mls_group_message_received` event. Bosun reads the message, confirms the
+author is not the bot itself (when the bot's own pubkey is known), and posts a
+fresh governance snapshot back to the same Squad using `event.chat_id` as the
+destination. The same `snapshot()` coroutine used by the daily cadence and the
+`/snapshot` command is invoked, so the output is identical.
+
+Messages that are not exactly `!snapshot` (after whitespace trimming) are
+ignored silently. If a group message arrives without a `chat_id`, the bot logs
+a warning and drops it.
+
+### Rate-limit response
+
+The daemon enforces a per-Squad rate limit on `!snapshot` triggers. When the
+limit is exceeded, the daemon sends the bot an `agent.rate_limited`
+notification. Bosun posts a short Markdown message in the affected Squad:
+
+```
+> Rate limit: one snapshot per minute per Squad. Try again in ~60 seconds.
+```
+
+The retry window comes from the notification's `window_seconds` field (60
+seconds by default if the daemon does not provide it). The bot does not attempt
+a full snapshot in response to this notification. If the notification lacks a
+`group_id`, the bot logs a warning and drops it.
+
+### DM-triggered `!snapshot <squad-id>`
+
+A squad member can also request a snapshot by DMing the bot with a target Squad:
+
+```
+!snapshot <squad-id>
+```
+
+Bosun verifies the sender's membership in the referenced Squad by calling
+`agent.is_squad_member(bot_id, squad_id, sender_pubkey)`. Only if the sender is a
+member does the bot post the snapshot to that Squad. If membership verification
+fails, an error occurs, or the DM does not include a squad identifier, the bot
+logs a warning and does not send a snapshot. A plain `!snapshot` DM with no squad
+id falls through to the existing slash-command handling.
+
+The existing `/snapshot` DM slash command and the `--trigger-snapshot` CLI flag
+continue to work unchanged.
+
+### Configuration
+
+No new required environment variables are introduced in Phase 2. All new behavior
+works with the existing Phase 1 configuration.
 
 ## License
 
