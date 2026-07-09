@@ -8,9 +8,29 @@ This bot responds to the following slash commands:
 
 - `/snapshot` — post an immediate governance snapshot to the configured group.
 
+It also responds to SDK-driven message handlers:
+
+- `!snapshot` in a Squad channel — trigger a fresh governance snapshot in that channel.
+- `!snapshot <squad-id>` via DM — trigger a snapshot for the given Squad if the sender is a member.
+
 The bot also posts a snapshot automatically every `PACTO_GOVERNANCE_CADENCE_SECONDS`
 (default 24 hours).
 
+
+## SDK upgrades
+
+Because `pacto-bot-sdk` is installed from the upstream git repository at image
+build time, you must rebuild the container after upstream SDK changes land:
+
+```bash
+docker compose build --no-cache
+```
+
+Then start the stack as usual:
+
+```bash
+docker compose up
+```
 
 ## Run against a host daemon
 
@@ -25,7 +45,7 @@ The bot also posts a snapshot automatically every `PACTO_GOVERNANCE_CADENCE_SECO
    cd bots/bosun
    ```
 3. Install the bot package. The `pacto-bot-sdk` dependency will be pulled from
-   PyPI automatically:
+   git automatically:
    ```bash
    pip install .
    ```

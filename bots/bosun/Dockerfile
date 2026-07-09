@@ -9,7 +9,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the bot package and install it. The bot depends on the pacto-bot-sdk
-# package from PyPI, which is resolved automatically by pip.
+# package installed from the git checkout via `pip install .`.
 COPY bots/bosun/ ./
 RUN pip install --no-cache-dir .
 

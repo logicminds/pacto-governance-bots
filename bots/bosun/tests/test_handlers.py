@@ -31,7 +31,7 @@ async def test_snapshot_command_registered():
 async def test_snapshot_command_replies(monkeypatch):
     calls = []
 
-    async def fake_snapshot(b):
+    async def fake_snapshot(b, group_id=None):
         calls.append(b)
 
     monkeypatch.setattr("bosun.bosun.snapshot", fake_snapshot)
