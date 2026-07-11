@@ -5,21 +5,21 @@ services:
     build:
       context: .
       dockerfile: ./bots/bosun/Dockerfile
+    env_file:
+      - path: ./bots/bosun/.env
+        required: true
     environment:
       PACTO_LOG_LEVEL: ${PACTO_LOG_LEVEL:-info}
       PACTO_GOVERNANCE_BOT_ID: ${PACTO_GOVERNANCE_BOT_ID:-bosun}
-      PACTO_GOVERNANCE_GROUP_ID: ${PACTO_GOVERNANCE_GROUP_ID}
       PACTO_GOVERNANCE_RPC_URL: ${PACTO_GOVERNANCE_RPC_URL:-http://anvil:8545}
       PACTO_GOVERNANCE_DAEMON_SOCKET: ${PACTO_GOVERNANCE_DAEMON_SOCKET:-/var/lib/pacto-bot-api/pacto-bot-api.sock}
-      PACTO_GOVERNANCE_CADENCE_SECONDS: ${PACTO_GOVERNANCE_CADENCE_SECONDS:-86400}
       PACTO_GOVERNANCE_SQUAD_INDEX: ${PACTO_GOVERNANCE_SQUAD_INDEX:-0}
-      # PACTO_GOVERNANCE_CAPTAIN, CREW_CANDIDATES, PROPOSER_CANDIDATES,
-      # REGISTRY, and HATS are intentionally omitted here. Set them in
-      # bots/bosun/.env or via the host environment when needed.
+      # PACTO_GOVERNANCE_GROUP_ID, CAPTAIN, CREW_CANDIDATES, PROPOSER_CANDIDATES,
+      # REGISTRY, and HATS are loaded from bots/bosun/.env via env_file.
     networks:
       - pacto
     volumes:
-      - pacto-bot-api-data:/var/lib/pacto-bot-api:ro
+      - pacto-bot-api-data:/var/lib/pacto-bot-api
     restart: on-failure
 
 networks:
@@ -29,4 +29,4 @@ networks:
 volumes:
   pacto-bot-api-data:
     external: true
-    name: pacto-dev-env_pacto-bot-api-data
+    name: pacto-bot-api-data

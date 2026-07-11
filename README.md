@@ -1,15 +1,15 @@
 # Bosun — Pacto Governance Snapshot Bot
 
-Bosun is a Python bot handler for the [`pacto-bot-api`](https://github.com/covenant-gov/pacto-bot-api) daemon. It posts a daily Markdown snapshot of on-chain Pacto governance state to an MLS Squad channel.
+Bosun is a Python bot handler for the [`pacto-bot-api`](https://github.com/covenant-gov/pacto-bot-api) daemon. It posts Markdown snapshots of on-chain Pacto governance state to an MLS Squad channel on demand.
 
 ## What it does
 
 - Connects to the `pacto-bot-api` daemon over Unix socket or HTTP.
-- Publishes its MLS KeyPackage on startup so it can be invited to a Squad.
 - Reads public Pacto-governance state from a configured EVM RPC endpoint (Sepolia or anvil).
 - Formats a Markdown snapshot covering active proposals, upcoming crew deadlines, treasury balances, active mutinies, captain/crew state, and suggested prompts.
-- Posts the snapshot daily to a configured MLS group via `agent.send_group_message`.
-- Supports an explicit `/snapshot` command and a `--trigger-snapshot` flag for manual testing.
+- Responds to `/snapshot` slash commands and `!snapshot` messages in Squad channels.
+- Posts snapshots on demand via `agent.send_group_message`.
+- Supports a `--trigger-snapshot` flag that connects, publishes its KeyPackage, posts one snapshot, and exits.
 
 ## Repository layout
 
@@ -19,7 +19,7 @@ pacto-governance-bots/
 │   └── bosun/
 │       ├── src/bosun/          # bot package
 │       │   ├── __init__.py
-│       │   ├── bosun.py        # entry point, command handler, cadence loop
+│       │   ├── bosun.py        # entry point, command handler
 │       │   ├── config.py       # env-var configuration layer
 │       │   ├── contracts.py    # ABI fragments for Pacto-gov contracts
 │       │   ├── reader.py       # AsyncWeb3 on-chain reader
@@ -137,7 +137,6 @@ Optional variables:
 | Variable | Default | Description |
 |---|---|---|
 | `PACTO_GOVERNANCE_SQUAD_INDEX` | `0` | Registry deployment index |
-| `PACTO_GOVERNANCE_CADENCE_SECONDS` | `86400` | Seconds between autonomous snapshots |
 | `PACTO_GOVERNANCE_CAPTAIN` | zero address | Captain address for Hats checks |
 | `PACTO_GOVERNANCE_CREW_CANDIDATES` | none | Comma-separated crew candidate addresses |
 | `PACTO_GOVERNANCE_PROPOSER_CANDIDATES` | none | Comma-separated proposer candidate addresses |
@@ -179,12 +178,12 @@ source .venv/bin/activate
 python -m bosun
 ```
 
-The bot will publish its KeyPackage, register with the daemon, and begin the
-daily cadence loop.
+The bot will register with the daemon and wait for incoming commands and Squad
+messages.
 
 ## Manual trigger (Phase 1 testing)
 
-To post a single snapshot without waiting for the daily cadence:
+To post a single snapshot on demand:
 
 ```bash
 source .venv/bin/activate
@@ -235,8 +234,8 @@ The daemon decrypts the group message and delivers it to the bot as an
 `mls_group_message_received` event. Bosun reads the message, confirms the
 author is not the bot itself (when the bot's own pubkey is known), and posts a
 fresh governance snapshot back to the same Squad using `event.chat_id` as the
-destination. The same `snapshot()` coroutine used by the daily cadence and the
-`/snapshot` command is invoked, so the output is identical.
+destination. The same `snapshot()` coroutine used by the `/snapshot` command
+and the inbound handlers is invoked, so the output is identical.
 
 Messages that are not exactly `!snapshot` (after whitespace trimming) are
 ignored silently. If a group message arrives without a `chat_id`, the bot logs

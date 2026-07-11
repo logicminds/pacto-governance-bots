@@ -13,9 +13,6 @@ It also responds to SDK-driven message handlers:
 - `!snapshot` in a Squad channel — trigger a fresh governance snapshot in that channel.
 - `!snapshot <squad-id>` via DM — trigger a snapshot for the given Squad if the sender is a member.
 
-The bot also posts a snapshot automatically every `PACTO_GOVERNANCE_CADENCE_SECONDS`
-(default 24 hours).
-
 
 ## SDK upgrades
 
@@ -54,7 +51,7 @@ docker compose up
    python -m bosun --trigger-snapshot
    ```
 
-For the long-running daemon (daily cadence) run:
+For the long-running daemon run:
 
 ```bash
 python -m bosun
@@ -155,7 +152,6 @@ required values. The bot reads these variables at runtime:
 | `PACTO_GOVERNANCE_DAEMON_HTTP` | No | none | Daemon HTTP URL (alternative to socket) |
 | `PACTO_GOVERNANCE_HTTP_SECRET` | No | none | Shared HTTP secret when using HTTP transport |
 | `PACTO_GOVERNANCE_SQUAD_INDEX` | No | `0` | Registry deployment index |
-| `PACTO_GOVERNANCE_CADENCE_SECONDS` | No | `86400` | Seconds between autonomous snapshots |
 | `PACTO_GOVERNANCE_CAPTAIN` | No | zero address | Captain address for Hats checks |
 | `PACTO_GOVERNANCE_CREW_CANDIDATES` | No | none | Comma-separated crew candidate addresses |
 | `PACTO_GOVERNANCE_PROPOSER_CANDIDATES` | No | none | Comma-separated proposer candidate addresses |

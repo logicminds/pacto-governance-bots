@@ -1,8 +1,8 @@
 """Bosun governance snapshot bot.
 
-Registers with the daemon, publishes its MLS KeyPackage on startup, responds to
-``/snapshot`` commands and ``!snapshot`` text triggers, and posts a daily
-on-chain governance snapshot to a configured MLS Squad channel.
+Registers with the daemon, responds to ``/snapshot`` commands and ``!snapshot``
+text triggers, and posts on-chain governance snapshots to a configured MLS
+Squad channel on demand.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ RATE_LIMIT_MESSAGE_TEMPLATE = (
 
 
 class BosunBot(Bot):
-    """Small subclass that adds a cadence loop alongside the dispatch loop."""
+    """Small subclass that adds a one-shot trigger flag to the base Bot."""
 
     def __init__(self, settings: Any, **kwargs: Any) -> None:
         self.settings = settings
@@ -72,7 +72,7 @@ class BosunBot(Bot):
         await self._run(argv)
 
     def run(self, argv: list[str] | None = None) -> None:
-        """Parse CLI args, publish KeyPackage, and run dispatch + cadence."""
+        """Parse CLI args and run the dispatch loop."""
         try:
             sys.exit(asyncio.run(self.amain(argv)))
         except KeyboardInterrupt:
@@ -86,8 +86,7 @@ class BosunBot(Bot):
         if getattr(args, "trigger_snapshot", False):
             return await trigger_once(self)
 
-        await setup(self)
-        await asyncio.gather(self.run_async(), cadence_loop(self))
+        await self.run_async()
         return 0
 
 
@@ -98,16 +97,6 @@ try:
 except ValueError as exc:
     print(format_settings_error(exc), file=sys.stderr, flush=True)
     sys.exit(1)
-
-
-async def setup(bot: BosunBot) -> None:
-    """Connect to the daemon and publish the bot's KeyPackage so it can be invited to a Squad."""
-    try:
-        await bot.client.connect()
-        result = await bot.client.agent_publish_key_package(bot_id=bot.bot_id)
-        bot.log(f"published KeyPackage: {result}")
-    except Exception as exc:  # noqa: BLE001
-        bot.log(f"warning: failed to publish KeyPackage: {exc}")
 
 
 async def is_squad_member(bot: BosunBot, group_id: str, member_pubkey: str) -> bool:
@@ -249,42 +238,30 @@ async def unknown(event, bot):
     return bot.ignore(event)
 
 
-async def cadence_loop(bot: BosunBot) -> None:
-    """Fire the snapshot routine at the configured interval.
-
-    Skips ticks when the bot is not yet registered/connected, and on first
-    start waits for the initial setup to complete. Exits promptly when the
-    SDK's shutdown event is set (e.g. on SIGINT/SIGTERM).
-    """
-    # Wait for setup to finish before the first tick.
-    await asyncio.sleep(0.5)
-
-    while not bot._shutdown.is_set():
-        # Check whether the bot is registered with the daemon. _handler_id is set
-        # by the Bot class after a successful handler.register call.
-        if not getattr(bot, "_handler_id", None):
-            bot.log("cadence: not registered yet, skipping tick")
-        else:
-            try:
-                await snapshot(bot, bot.settings.group_id)
-            except Exception as exc:  # noqa: BLE001
-                bot.log(f"cadence tick failed: {exc}")
+async def trigger_once(bot: BosunBot) -> int:
+    """Connect, register, publish KeyPackage, post a snapshot, and exit."""
+    try:
+        await bot.client.connect()
+        result = await bot.client.handler_register(
+            bot_ids=[bot.bot_id],
+            event_types=bot.event_types,
+            capabilities=bot.capabilities,
+        )
+        bot._handler_id = result.handler_id
+        bot._reconnect_token = result.reconnect_token
+        bot._own_pubkeys = result.own_pubkeys
+        bot.log(f"registered handler_id={bot._handler_id}")
 
         try:
-            # Sleep, but wake immediately if the SDK signals shutdown.
-            await asyncio.wait_for(
-                bot._shutdown.wait(), timeout=bot.settings.cadence_seconds
-            )
-        except asyncio.TimeoutError:
-            pass
+            kp_result = await bot.client.agent_publish_key_package(bot_id=bot.bot_id)
+            bot.log(f"published KeyPackage: {kp_result}")
+        except Exception as exc:  # noqa: BLE001
+            bot.log(f"warning: failed to publish KeyPackage: {exc}")
 
-
-async def trigger_once(bot: BosunBot) -> int:
-    """Connect, publish KeyPackage, post a snapshot, and exit."""
-    await setup(bot)
-    data = await snapshot(bot)
-    await bot.client.close()
-    return 0 if data is not None else 1
+        data = await snapshot(bot)
+        return 0 if data is not None else 1
+    finally:
+        await bot.client.close()
 
 
 def main() -> None:

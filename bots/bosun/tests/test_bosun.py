@@ -1,4 +1,4 @@
-"""Unit tests for the bosun bot wiring, cadence, trigger modes, and inbound
+"""Unit tests for the bosun bot wiring, trigger modes, and inbound
 ``!snapshot`` event handlers.
 
 Slash-command tests for ``/snapshot`` live in ``test_handlers.py``.
@@ -11,7 +11,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from bosun import bot, is_squad_member, setup, snapshot, trigger_once
+from bosun import bot, is_squad_member, snapshot, trigger_once
 from bosun.config import Settings
 from pacto_bot_sdk import AgentEventParams, AgentRateLimitedParams
 
@@ -103,38 +103,6 @@ class _FailingReader:
 
 
 @pytest.mark.asyncio
-async def test_setup_connects_and_publishes_key_package(monkeypatch):
-    b = _make_bot(monkeypatch)
-    calls = []
-    connected = []
-
-    async def fake_connect():
-        connected.append(True)
-
-    async def fake_publish(bot_id):
-        calls.append(bot_id)
-        return "keypackage-event-id"
-
-    monkeypatch.setattr(b.client, "connect", fake_connect)
-    monkeypatch.setattr(b.client, "agent_publish_key_package", fake_publish)
-    await setup(b)
-    assert connected
-    assert calls == ["bosun"]
-
-
-@pytest.mark.asyncio
-async def test_setup_continues_on_error(monkeypatch):
-    b = _make_bot(monkeypatch)
-
-    async def fake_connect():
-        raise RuntimeError("daemon refused")
-
-    monkeypatch.setattr(b.client, "connect", fake_connect)
-    # Should not raise.
-    await setup(b)
-
-
-@pytest.mark.asyncio
 async def test_snapshot_posts_group_message(monkeypatch):
     b = _make_bot(monkeypatch)
     sent = []
@@ -187,12 +155,25 @@ async def test_trigger_once_connects_and_posts(monkeypatch):
         published.append(bot_id)
         return "kp"
 
+    async def fake_register(*args, **kwargs):
+        return type(
+            "RegisterResult",
+            (),
+            {
+                "handler_id": "test-handler-id",
+                "reconnect_token": "test-reconnect-token",
+                "own_pubkeys": ["test-pubkey"],
+                "registered_events": [],
+            },
+        )()
+
     async def fake_send(group_id, content):
         sent.append((group_id, content))
         return "msg"
 
     monkeypatch.setattr(b.client, "connect", fake_connect)
     monkeypatch.setattr(b.client, "close", fake_close)
+    monkeypatch.setattr(b.client, "handler_register", fake_register)
     monkeypatch.setattr(b.client, "agent_publish_key_package", fake_publish)
     monkeypatch.setattr(b, "send_group_message", fake_send)
     monkeypatch.setattr("bosun.bosun.GovernanceReader", _FakeReader)
@@ -217,63 +198,30 @@ async def test_trigger_once_exits_non_zero_on_send_failure(monkeypatch):
     async def fake_publish(bot_id):
         return "kp"
 
+    async def fake_register(*args, **kwargs):
+        return type(
+            "RegisterResult",
+            (),
+            {
+                "handler_id": "test-handler-id",
+                "reconnect_token": "test-reconnect-token",
+                "own_pubkeys": ["test-pubkey"],
+                "registered_events": [],
+            },
+        )()
+
     async def fake_send(*args, **kwargs):
         raise RuntimeError("daemon error")
 
     monkeypatch.setattr(b.client, "connect", fake_connect)
     monkeypatch.setattr(b.client, "close", fake_close)
+    monkeypatch.setattr(b.client, "handler_register", fake_register)
     monkeypatch.setattr(b.client, "agent_publish_key_package", fake_publish)
     monkeypatch.setattr(b, "send_group_message", fake_send)
     monkeypatch.setattr("bosun.bosun.GovernanceReader", _FakeReader)
 
     code = await trigger_once(b)
     assert code == 1
-
-
-@pytest.mark.asyncio
-async def test_cadence_loop_skips_when_not_registered(monkeypatch):
-    from bosun.bosun import cadence_loop
-
-    b = _make_bot(monkeypatch)
-    b.settings.cadence_seconds = 0.1
-    snapshots = []
-
-    async def fake_snapshot(bot, group_id=None):
-        snapshots.append(True)
-
-    monkeypatch.setattr("bosun.bosun.snapshot", fake_snapshot)
-    # Do not set _handler_id, so cadence should skip.
-    task = asyncio.create_task(cadence_loop(b))
-    await asyncio.sleep(0.2)
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
-    assert snapshots == []
-
-
-@pytest.mark.asyncio
-async def test_cadence_loop_exits_on_shutdown(monkeypatch):
-    """cadence_loop returns promptly when the SDK's shutdown event is set."""
-    from bosun.bosun import cadence_loop
-
-    b = _make_bot(monkeypatch)
-    b.settings.cadence_seconds = 10.0  # long sleep that we should not wait for
-
-    async def fake_snapshot(bot, group_id=None):
-        return None
-
-    monkeypatch.setattr("bosun.bosun.snapshot", fake_snapshot)
-    b._handler_id = "registered"
-
-    task = asyncio.create_task(cadence_loop(b))
-    # Give the loop time to start its first tick, then signal shutdown.
-    await asyncio.sleep(0.05)
-    b._shutdown.set()
-
-    await task
-    assert True
 
 
 def test_bosunbot_registers_with_group_message_capabilities(monkeypatch):
