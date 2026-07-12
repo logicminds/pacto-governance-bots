@@ -30,7 +30,7 @@ done
 if [ -f "$BOT_ENV" ]; then
   set -a
   # shellcheck source=/dev/null
-  source <(grep '^PACTO_GOVERNANCE_' "$BOT_ENV" || true)
+  eval "$(grep '^PACTO_GOVERNANCE_' "$BOT_ENV" || true)"
   set +a
 fi
 
@@ -43,27 +43,42 @@ HATS="${PACTO_GOVERNANCE_HATS:-}"
 FAIL=0
 
 check_socket() {
-  if [ ! -S "$SOCKET" ]; then
-    echo "FAIL: daemon socket not found: $SOCKET"
-    FAIL=1
-    return
-  fi
-  echo "OK: daemon socket exists"
+  if [ -S "$SOCKET" ]; then
+    echo "OK: daemon socket exists"
 
-  local response
-  response=$(printf '{"jsonrpc":"2.0","id":1,"method":"system.health","params":[]}\n' \
-    | socat -t 2 - "UNIX-CONNECT:$SOCKET" 2>/dev/null | head -c 4096) || true
-  if [ -z "$response" ]; then
-    echo "FAIL: daemon did not respond to system.health"
+    local response
+    response=$(printf '{"jsonrpc":"2.0","id":1,"method":"system.health","params":[]}\n' \
+      | socat -t 2 - "UNIX-CONNECT:$SOCKET" 2>/dev/null | head -c 4096) || true
+    if [ -z "$response" ]; then
+      echo "FAIL: daemon did not respond to system.health"
+      FAIL=1
+      return
+    fi
+    if ! echo "$response" | jq -e '.result' >/dev/null 2>&1; then
+      echo "FAIL: system.health returned error: $(echo "$response" | jq -c '.error // .')"
+      FAIL=1
+      return
+    fi
+    echo "OK: daemon responds to system.health"
+    return
+  fi
+
+  # Fallback: the daemon may be running inside a container with the socket on a
+  # Docker volume. Probe it via docker exec using the dev-env compose project.
+  local daemon_container
+  daemon_container=$(docker compose -f "$PACTO_DEV_ENV_DIR/docker-compose.yml" ps pacto-bot-api --format json 2>/dev/null | jq -r '.Name // empty' 2>/dev/null || true)
+  if [ -z "$daemon_container" ]; then
+    echo "FAIL: daemon socket not found: $SOCKET and no running pacto-bot-api container"
     FAIL=1
     return
   fi
-  if ! echo "$response" | jq -e '.result' >/dev/null 2>&1; then
-    echo "FAIL: system.health returned error: $(echo "$response" | jq -c '.error // .')"
+
+  if docker exec "$daemon_container" pacto-bot-admin status --data-dir /var/lib/pacto-bot-api >/dev/null 2>&1; then
+    echo "OK: daemon socket reachable inside container $daemon_container"
+  else
+    echo "FAIL: daemon socket not reachable inside container $daemon_container"
     FAIL=1
-    return
   fi
-  echo "OK: daemon responds to system.health"
 }
 
 check_bot_identity() {

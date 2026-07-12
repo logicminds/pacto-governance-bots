@@ -102,7 +102,7 @@ Both repos agree on the following resources:
 | Resource | Value | Where declared |
 |----------|-------|----------------|
 | Docker network | `pacto` | `pacto-dev-env/docker-compose.yml` |
-| Daemon data volume | `pacto-dev-env_pacto-bot-api-data` | `pacto-dev-env/docker-compose.yml` |
+| Daemon data volume | `pacto-bot-api-data` | `pacto-dev-env/docker-compose.yml` |
 | Daemon socket path | `/var/lib/pacto-bot-api/pacto-bot-api.sock` | `pacto-dev-env/docker-compose.yml`, `pacto-governance-bots/docker-compose.yml` |
 
 ## Troubleshooting

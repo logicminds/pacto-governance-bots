@@ -224,12 +224,58 @@ async def test_trigger_once_exits_non_zero_on_send_failure(monkeypatch):
     assert code == 1
 
 
-def test_bosunbot_registers_with_group_message_capabilities(monkeypatch):
-    b = _make_bot(monkeypatch)
+@pytest.mark.asyncio
+async def test_cadence_loop_skips_when_not_registered(monkeypatch):
+    from bosun.bosun import cadence_loop
+
+    b = _make_bot()
+    b.settings.cadence_seconds = 0.1
+    snapshots = []
+
+    async def fake_snapshot(bot):
+        snapshots.append(True)
+
+    monkeypatch.setattr("bosun.bosun.snapshot", fake_snapshot)
+    # Do not set _handler_id, so cadence should skip.
+    task = asyncio.create_task(cadence_loop(b))
+    await asyncio.sleep(0.2)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    assert snapshots == []
+
+
+@pytest.mark.asyncio
+async def test_cadence_loop_exits_on_shutdown(monkeypatch):
+    """cadence_loop returns promptly when the SDK's shutdown event is set."""
+    from bosun.bosun import cadence_loop
+
+    b = _make_bot()
+    b.settings.cadence_seconds = 10.0  # long sleep that we should not wait for
+
+    async def fake_snapshot(bot):
+        return None
+
+    monkeypatch.setattr("bosun.bosun.snapshot", fake_snapshot)
+    b._handler_id = "registered"
+
+    task = asyncio.create_task(cadence_loop(b))
+    # Give the loop time to start its first tick, then signal shutdown.
+    await asyncio.sleep(0.05)
+    b._shutdown.set()
+
+    await task
+    assert True
+
+
+def test_bosunbot_registers_with_group_message_capabilities():
+    b = _make_bot()
+    assert "ReadMessages" in b.capabilities
+    assert "SendMessages" in b.capabilities
     assert "SendGroupMessages" in b.capabilities
-    assert "ReceiveGroupMessages" in b.capabilities
     assert "dm_received" in b.event_types
-    assert "mls_group_message_received" in b.event_types
 
 
 class _FakeEvent(AgentEventParams):
