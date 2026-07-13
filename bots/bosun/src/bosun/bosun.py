@@ -585,8 +585,8 @@ async def unknown(event, bot):
 
 async def trigger_once(bot: BosunBot) -> int:
     """Connect, register, publish KeyPackage, post a snapshot, and exit."""
+    await bot.client.connect()
     try:
-        await bot.client.connect()
         result = await bot.client.handler_register(
             bot_ids=[bot.bot_id],
             event_types=bot.event_types,
@@ -594,19 +594,20 @@ async def trigger_once(bot: BosunBot) -> int:
         )
         bot._handler_id = result.handler_id
         bot._reconnect_token = result.reconnect_token
-        bot._own_pubkeys = result.own_pubkeys
-        bot.log(f"registered handler_id={bot._handler_id}")
+        bot.log(f"registered handler_id={result.handler_id}")
+    except (PactoClientError, TimeoutError, asyncio.TimeoutError) as exc:
+        bot.log(f"error: failed to register handler: {exc}")
+        return 1
 
-        try:
-            kp_result = await bot.client.agent_publish_key_package(bot_id=bot.bot_id)
-            bot.log(f"published KeyPackage: {kp_result}")
-        except Exception as exc:  # noqa: BLE001
-            bot.log(f"warning: failed to publish KeyPackage: {exc}")
+    try:
+        kp_result = await bot.client.agent_publish_key_package(bot_id=bot.bot_id)
+        bot.log(f"published KeyPackage: {kp_result}")
+    except Exception as exc:  # noqa: BLE001
+        bot.log(f"warning: failed to publish KeyPackage: {exc}")
 
-        data = await snapshot(bot)
-        return 0 if data is not None else 1
-    finally:
-        await bot.client.close()
+    data = await snapshot(bot)
+    await bot.client.close()
+    return 0 if data is not None else 1
 
 
 def main() -> None:

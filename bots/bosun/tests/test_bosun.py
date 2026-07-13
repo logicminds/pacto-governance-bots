@@ -171,6 +171,9 @@ async def test_trigger_once_connects_and_posts(monkeypatch):
         sent.append((group_id, content))
         return "msg"
 
+    async def fake_register(**kwargs):
+        return type("_Reg", (), {"handler_id": "hid-1", "reconnect_token": "rt-1"})()
+
     monkeypatch.setattr(b.client, "connect", fake_connect)
     monkeypatch.setattr(b.client, "close", fake_close)
     monkeypatch.setattr(b.client, "handler_register", fake_register)
@@ -212,6 +215,9 @@ async def test_trigger_once_exits_non_zero_on_send_failure(monkeypatch):
 
     async def fake_send(*args, **kwargs):
         raise RuntimeError("daemon error")
+
+    async def fake_register(**kwargs):
+        return type("_Reg", (), {"handler_id": "hid-1", "reconnect_token": "rt-1"})()
 
     monkeypatch.setattr(b.client, "connect", fake_connect)
     monkeypatch.setattr(b.client, "close", fake_close)
