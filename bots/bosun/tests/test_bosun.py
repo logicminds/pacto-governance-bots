@@ -281,7 +281,9 @@ def test_bosunbot_registers_with_group_message_capabilities():
     assert "ReadMessages" in b.capabilities
     assert "SendMessages" in b.capabilities
     assert "SendGroupMessages" in b.capabilities
+    assert "ReceiveGroupMessages" in b.capabilities
     assert "dm_received" in b.event_types
+    assert "mls_group_message_received" in b.event_types
 
 
 class _FakeEvent(AgentEventParams):

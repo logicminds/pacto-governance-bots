@@ -43,8 +43,13 @@ class BosunBot(Bot):
         self.settings = settings
         super().__init__(
             bot_id=settings.bot_id,
-            capabilities=["ReadMessages", "SendMessages", "SendGroupMessages"],
-            event_types=["dm_received"],
+            capabilities=[
+                "ReadMessages",
+                "SendMessages",
+                "SendGroupMessages",
+                "ReceiveGroupMessages",
+            ],
+            event_types=["dm_received", "mls_group_message_received"],
             **kwargs,
         )
         # When the daemon restarts, the old handler id and reconnect token are
