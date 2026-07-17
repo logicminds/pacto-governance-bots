@@ -35,7 +35,11 @@ def _set_required(monkeypatch, **extra):
 
 
 def test_settings_loads_from_env(monkeypatch):
-    _set_required(monkeypatch)
+    _set_required(
+        monkeypatch,
+        PACTO_GOVERNANCE_REGISTRY=SEPOLIA_REGISTRY,
+        PACTO_GOVERNANCE_HATS=SEPOLIA_HATS,
+    )
     settings = Settings()
     assert settings.rpc_url == "http://localhost:8545"
     assert settings.bot_id == "bosun"

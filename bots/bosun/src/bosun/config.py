@@ -106,6 +106,7 @@ class Settings(BaseSettings):
     )
     registry: str = Field(default=SEPOLIA_REGISTRY, description="NavePirataRegistry address")
     hats: str = Field(default=SEPOLIA_HATS, description="Hats Protocol contract address")
+    cadence_seconds: int = Field(default=86_400, description="Seconds between automatic snapshots")
     config_file: str | None = Field(
         default=None, description="Optional JSON config overlay file"
     )
