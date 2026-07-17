@@ -11,6 +11,7 @@ SRC_DIR := $(BOT_DIR)/src/bosun
 .PHONY: help venv install install-dev env link-dev-env up down logs build run-local trigger-snapshot test validate status health-check setup-dev-env secret-lint clean
 
 PACTO_DEV_ENV_DIR := ${PACTO_DEV_ENV_DIR:-../pacto-dev-env}
+BUILD_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 
 help: ## Show available make targets and their descriptions
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage: make <target>\n\n"} \
@@ -41,7 +42,8 @@ link-dev-env: ## Create a local symlink to the pacto-dev-env checkout
 	fi
 
 up: ## Build and start the bot container in the background
-	docker compose up -d --build bosun
+	docker compose build --build-arg BOSUN_COMMIT=$(BUILD_COMMIT) bosun
+	docker compose up -d bosun
 
 down: ## Stop the bot container
 	docker compose down
@@ -50,7 +52,7 @@ logs: ## Tail the bot container logs
 	docker logs --tail 50 -f bosun-bosun-1
 
 build: ## Build the bot container image
-	docker compose build bosun
+	docker compose build --build-arg BOSUN_COMMIT=$(BUILD_COMMIT) bosun
 
 run-local: install ## Run the bot locally using the venv
 	$(VENV)/bin/python -m bosun

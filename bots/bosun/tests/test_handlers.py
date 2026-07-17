@@ -28,6 +28,35 @@ async def test_snapshot_command_registered():
 
 
 @pytest.mark.asyncio
+async def test_version_command_registered():
+    assert "version" in bot._commands
+
+
+@pytest.mark.asyncio
+async def test_version_command_replies():
+    event = FakeEvent()
+    event.content = "/version"
+    handler = bot._commands["version"]
+    result = await handler(event, bot)
+    assert result["action"] == "reply"
+    assert result["event_id"] == event.event_id
+    assert result["content"].startswith("bosun v")
+    assert "(commit" in result["content"]
+
+
+@pytest.mark.asyncio
+async def test_info_command_alias_replies():
+    event = FakeEvent()
+    event.content = "/info"
+    handler = bot._commands["info"]
+    result = await handler(event, bot)
+    assert result["action"] == "reply"
+    assert result["event_id"] == event.event_id
+    assert result["content"].startswith("bosun v")
+    assert "(commit" in result["content"]
+
+
+@pytest.mark.asyncio
 async def test_snapshot_command_replies(monkeypatch):
     calls = []
 

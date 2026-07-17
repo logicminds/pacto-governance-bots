@@ -13,7 +13,7 @@ import pytest
 
 from bosun import bot, is_squad_member, snapshot, trigger_once
 from bosun.config import Settings
-from pacto_bot_sdk import AgentEventParams, AgentRateLimitedParams
+from pacto_bot_sdk import AgentEventParams, AgentRateLimitedParams, PactoClientError
 
 
 VALID_PUBKEY = "a" * 64
@@ -285,6 +285,8 @@ def test_bosunbot_registers_with_group_message_capabilities(monkeypatch):
     assert "ReceiveGroupMessages" in b.capabilities
     assert "dm_received" in b.event_types
     assert "mls_group_message_received" in b.event_types
+    assert "mls_welcome_received" in b.event_types
+    assert "mls_welcome_received" in b._event_handlers
 
 
 class _FakeEvent(AgentEventParams):
@@ -745,3 +747,69 @@ async def test_dm_snapshot_slash_command_still_works(monkeypatch):
     assert len(responses) == 1
     assert responses[0][1].get("action") == "reply"
     assert "Snapshot posted" in responses[0][1].get("content", "")
+
+
+@pytest.mark.asyncio
+async def test_mls_welcome_received_sends_hello_message(monkeypatch):
+    b = _make_bot(monkeypatch)
+    sent = []
+
+    async def fake_send(group_id, content):
+        sent.append((group_id, content))
+        return "hello-event-id"
+
+    monkeypatch.setattr(b, "send_group_message", fake_send)
+
+    event = _FakeEvent(type="mls_welcome_received", content="", chat_id="group-123")
+    with _capture_handler_response(b) as responses:
+        await b._handle_event(event)
+
+    assert len(sent) == 1
+    assert sent[0][0] == "group-123"
+    assert "bosun" in sent[0][1]
+    assert "!snapshot" in sent[0][1]
+    assert len(responses) == 1
+    assert responses[0][1].get("action") == "ignore"
+    assert responses[0][1].get("event_id") == event.event_id
+
+
+@pytest.mark.asyncio
+async def test_mls_welcome_received_missing_chat_id_logs_warning(monkeypatch):
+    b = _make_bot(monkeypatch)
+    sent = []
+    logs = []
+
+    async def fake_send(*args, **kwargs):
+        sent.append(args)
+
+    monkeypatch.setattr(b, "send_group_message", fake_send)
+    monkeypatch.setattr(b, "log", lambda msg: logs.append(msg))
+
+    event = _FakeEvent(type="mls_welcome_received", content="", chat_id=None)
+    with _capture_handler_response(b) as responses:
+        await b._handle_event(event)
+
+    assert sent == []
+    assert any("without chat_id" in msg for msg in logs)
+    assert len(responses) == 1
+    assert responses[0][1].get("action") == "ignore"
+
+
+@pytest.mark.asyncio
+async def test_mls_welcome_received_send_failure_logs_warning(monkeypatch):
+    b = _make_bot(monkeypatch)
+    logs = []
+
+    async def fake_send(*args, **kwargs):
+        raise PactoClientError("daemon error")
+
+    monkeypatch.setattr(b, "send_group_message", fake_send)
+    monkeypatch.setattr(b, "log", lambda msg: logs.append(msg))
+
+    event = _FakeEvent(type="mls_welcome_received", content="", chat_id="group-123")
+    with _capture_handler_response(b) as responses:
+        await b._handle_event(event)
+
+    assert any("failed to send squad join announcement" in msg for msg in logs)
+    assert len(responses) == 1
+    assert responses[0][1].get("action") == "ignore"
