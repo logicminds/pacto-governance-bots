@@ -1,7 +1,7 @@
 """Handler-local configuration for the bosun governance snapshot bot.
 
 Configuration starts from environment variables. The daemon does not own the
-snapshot cadence or RPC endpoint; they live here in the handler.
+RPC endpoint; it lives here in the handler.
 """
 
 from __future__ import annotations
@@ -84,7 +84,6 @@ class Settings(BaseSettings):
 
     # Optional with defaults
     squad_index: int = Field(default=0, description="Registry deployment index")
-    cadence_seconds: int = Field(default=86_400, description="Seconds between snapshots")
     daemon_socket: str | None = Field(
         default=None, description="Unix socket path for the daemon"
     )

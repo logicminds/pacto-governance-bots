@@ -15,6 +15,9 @@ def _set_required(monkeypatch, **extra):
         "PACTO_GOVERNANCE_BOT_ID": "bosun",
         "PACTO_GOVERNANCE_GROUP_ID": "test-group",
         "PACTO_GOVERNANCE_DAEMON_SOCKET": "/tmp/pacto-test.sock",
+        # Pin optional defaults so a local .env file does not make the test flaky.
+        "PACTO_GOVERNANCE_REGISTRY": SEPOLIA_REGISTRY,
+        "PACTO_GOVERNANCE_HATS": SEPOLIA_HATS,
     }
     base.update(extra)
     for key, value in base.items():
@@ -26,8 +29,6 @@ def _set_required(monkeypatch, **extra):
         "PACTO_GOVERNANCE_CAPTAIN",
         "PACTO_GOVERNANCE_CREW_CANDIDATES",
         "PACTO_GOVERNANCE_PROPOSER_CANDIDATES",
-        "PACTO_GOVERNANCE_REGISTRY",
-        "PACTO_GOVERNANCE_HATS",
     ]:
         if key not in base:
             monkeypatch.delenv(key, raising=False)
@@ -41,7 +42,6 @@ def test_settings_loads_from_env(monkeypatch):
     assert settings.group_id == "test-group"
     assert settings.daemon_socket == "/tmp/pacto-test.sock"
     assert settings.squad_index == 0
-    assert settings.cadence_seconds == 86_400
     assert settings.registry == SEPOLIA_REGISTRY
     assert settings.hats == SEPOLIA_HATS
 
@@ -50,7 +50,6 @@ def test_settings_defaults_match_rust(monkeypatch):
     _set_required(monkeypatch)
     settings = Settings()
     assert settings.squad_index == 0
-    assert settings.cadence_seconds == 86_400
     assert settings.captain == "0x0000000000000000000000000000000000000000"
     assert settings.crew_candidates == []
     assert settings.proposer_candidates == []
@@ -163,8 +162,8 @@ def test_settings_to_bot_transport_kwargs_http(monkeypatch):
 def test_load_settings_applies_config_file(monkeypatch, tmp_path):
     _set_required(monkeypatch)
     config_file = tmp_path / "config.json"
-    config_file.write_text('{"cadence_seconds": 3600}')
+    config_file.write_text('{"squad_index": 1}')
     monkeypatch.setenv("PACTO_GOVERNANCE_CONFIG_FILE", str(config_file))
     settings = load_settings()
-    assert settings.cadence_seconds == 3600
+    assert settings.squad_index == 1
     assert settings.bot_id == "bosun"

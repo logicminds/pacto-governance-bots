@@ -7,9 +7,8 @@ from bosun.bosun import (
     bot,
     is_squad_member,
     main,
-    setup,
     snapshot,
     trigger_once,
 )
 
-__all__ = ["BosunBot", "bot", "is_squad_member", "main", "setup", "snapshot", "trigger_once"]
+__all__ = ["BosunBot", "bot", "is_squad_member", "main", "snapshot", "trigger_once"]
