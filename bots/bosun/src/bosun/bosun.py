@@ -10,13 +10,18 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+import time
 from typing import Any
 
 from pacto_bot_sdk import (
+    AgentEventParams,
     AgentRateLimitedParams,
+    AgentStatusParams,
     Bot,
+    PactoClientError,
     validate,
 )
+from pacto_bot_sdk.transports import TransportDisconnected
 
 from bosun.config import format_settings_error, load_settings
 from bosun.formatter import format_snapshot
@@ -34,6 +39,8 @@ RATE_LIMIT_MESSAGE_TEMPLATE = (
     "> Rate limit: one snapshot per minute per Squad. "
     "Try again in ~{window} seconds."
 )
+RPC_TIMEOUT_SECONDS = 10.0
+SNAPSHOT_LOCK_TIMEOUT_SECONDS = 30.0
 
 
 class BosunBot(Bot):
@@ -41,6 +48,8 @@ class BosunBot(Bot):
 
     def __init__(self, settings: Any, **kwargs: Any) -> None:
         self.settings = settings
+        self._snapshot_lock: asyncio.Lock | None = None
+        self._rate_limit_cache: dict[str, float] = {}
         super().__init__(
             bot_id=settings.bot_id,
             capabilities=[
@@ -127,6 +136,10 @@ class BosunBot(Bot):
             await self._ack(event_id, action="ignore")
             return
 
+        if self.own_pubkey and getattr(event, "author", None) == self.own_pubkey:
+            await self._ack(event_id, action="ignore")
+            return
+
         # The daemon already validates MLS group membership before delivering
         # the event; we rely on that trust boundary here rather than issuing a
         # redundant RPC. If that assumption changes, call _is_squad_member.
@@ -181,6 +194,14 @@ class BosunBot(Bot):
 
         if not author:
             self.log(f"warning: dm_received without author: event_id={event_id}")
+            await self._ack(event_id, action="ignore")
+            return True
+
+        try:
+            squad_id = validate.squad_id(squad_id)
+            author = validate.pubkey(author)
+        except ValueError as exc:
+            self.log(f"warning: invalid DM snapshot request: {exc}")
             await self._ack(event_id, action="ignore")
             return True
 
@@ -264,15 +285,7 @@ class BosunBot(Bot):
 
     async def _is_squad_member_with_timeout(self, group_id: str, member_pubkey: str) -> bool:
         """Return True when ``member_pubkey`` is a member of the given Squad."""
-        response = await asyncio.wait_for(
-            self.client.agent_is_squad_member(
-                bot_id=self.bot_id,
-                group_id=group_id,
-                member_pubkey=member_pubkey,
-            ),
-            timeout=RPC_TIMEOUT_SECONDS,
-        )
-        return response.is_member
+        return await self.is_squad_member(group_id, member_pubkey)
 
     def _check_rate_limit(self, group_id: str) -> bool:
         """Return True if the group is allowed to trigger a new snapshot now."""
@@ -320,14 +333,7 @@ class BosunBot(Bot):
 
         content = RATE_LIMIT_MESSAGE_TEMPLATE.format(window=window)
         try:
-            await asyncio.wait_for(
-                self.client.agent_send_group_message(
-                    bot_id=self.bot_id,
-                    content=content,
-                    group_id=group_id,
-                ),
-                timeout=RPC_TIMEOUT_SECONDS,
-            )
+            await self.send_group_message(group_id, content)
         except (PactoClientError, TransportDisconnected, asyncio.TimeoutError) as exc:
             self.log(
                 f"warning: failed to send rate-limit message: "
@@ -417,28 +423,6 @@ class BosunBot(Bot):
         args.trigger_snapshot = pre_args.trigger_snapshot
         return args
 
-    async def run_async(self, argv: list[str] | None = None) -> None:
-        """Run the daemon dispatch loop with the configured retry/circuit logic."""
-        await self._run(argv)
-
-    def run(self, argv: list[str] | None = None) -> None:
-        """Parse CLI args and run the dispatch loop."""
-        try:
-            sys.exit(asyncio.run(self.amain(argv)))
-        except KeyboardInterrupt:
-            sys.exit(130)
-
-    async def amain(self, argv: list[str] | None = None) -> int:
-        args = self._parse_args(argv)
-        if args.log_level is not None:
-            self._logger.set_level(args.log_level)
-
-        if getattr(args, "trigger_snapshot", False):
-            return await trigger_once(self)
-
-        await self.run_async()
-        return 0
-
 
 # Module-level bot instance so the decorator API works and tests can import it.
 try:
@@ -486,92 +470,37 @@ async def snapshot(bot: BosunBot, group_id: str | None = None) -> SnapshotData |
     return data
 
 
-@bot.event("mls_group_message_received")
-@bot.lock("snapshot")
-async def handle_mls_group_message(event, bot):
-    """Handle an MLS group message that requests a snapshot."""
-    chat_id = (event.chat_id or "").strip()
-    content = (event.content or "").strip()
-    if not chat_id:
-        bot.log(f"warning: mls_group_message_received without chat_id: event_id={event.event_id}")
-        return bot.ignore(event)
+async def setup(bot: BosunBot) -> None:
+    """Initial setup; publish the bot's KeyPackage so it can be invited to a Squad."""
     try:
-        chat_id = validate.squad_id(chat_id)
-    except ValueError as exc:
-        bot.log(f"warning: invalid chat_id in mls_group_message_received: {exc}")
-        return bot.ignore(event)
-    if bot.own_pubkey and getattr(event, "author", None) == bot.own_pubkey:
-        return bot.ignore(event)
-    if content != SNAPSHOT_COMMAND:
-        return bot.ignore(event)
-    try:
-        await snapshot(bot, group_id=chat_id)
+        result = await bot.client.agent_publish_key_package(bot_id=bot.bot_id)
+        bot.log(f"published KeyPackage: {result}")
     except Exception as exc:  # noqa: BLE001
-        bot.log(f"error: group snapshot handler failed: {exc}")
-    return bot.ignore(event)
+        bot.log(f"warning: failed to publish KeyPackage: {exc}")
 
 
-@bot.hears("!snapshot")
-@bot.lock("snapshot")
-async def handle_dm_snapshot(event, bot):
-    """Handle a DM that requests a snapshot in a specific Squad."""
-    if event.type != "dm_received":
-        return bot.ignore(event)
-    content = (event.content or "").strip()
-    author = getattr(event, "author", None)
-    tokens = content.split()
-    if len(tokens) < 2:
-        return bot.ignore(event)
-    squad_id = tokens[1]
-    if not author:
-        bot.log(f"warning: dm_received without author: event_id={event.event_id}")
-        return bot.ignore(event)
-    try:
-        squad_id = validate.squad_id(squad_id)
-        author = validate.pubkey(author)
-    except ValueError as exc:
-        bot.log(f"warning: invalid DM snapshot request: {exc}")
-        return bot.ignore(event)
-    try:
-        is_member = await bot.is_squad_member(squad_id, author)
-    except Exception as exc:  # noqa: BLE001
-        bot.log(
-            f"warning: membership check failed: "
-            f"event_id={event.event_id} squad_id={squad_id} author={author} "
-            f"error={exc}"
-        )
-        return bot.ignore(event)
-    if not is_member:
-        bot.log(f"warning: {author} is not a member of {squad_id}")
-        return bot.ignore(event)
-    try:
-        await snapshot(bot, group_id=squad_id)
-    except Exception as exc:  # noqa: BLE001
-        bot.log(f"error: DM snapshot handler failed: {exc}")
-    return bot.ignore(event)
+async def cadence_loop(bot: BosunBot) -> None:
+    """Fire the snapshot routine at the configured interval.
 
+    Skips ticks when the bot is not yet registered/connected, and exits
+    promptly when the SDK's shutdown event is set (e.g. on SIGINT/SIGTERM).
+    """
+    await asyncio.sleep(0.5)
 
-@bot.rate_limited
-async def handle_rate_limited(notification: AgentRateLimitedParams, bot):
-    """Post a rate-limit explanation in the affected Squad."""
-    group_id = getattr(notification, "group_id", None)
-    if not group_id:
-        bot.log("warning: agent.rate_limited without group_id")
-        return
-    window = getattr(notification, "window_seconds", None)
-    if window is None:
-        window = DEFAULT_RATE_LIMIT_WINDOW_SECONDS
-    else:
+    while not bot._shutdown.is_set():
+        if not getattr(bot, "_handler_id", None):
+            bot.log("cadence: not registered yet, skipping tick")
+        else:
+            try:
+                await snapshot(bot)
+            except Exception as exc:  # noqa: BLE001
+                bot.log(f"cadence tick failed: {exc}")
         try:
-            window = int(window)
-        except (TypeError, ValueError):
-            window = DEFAULT_RATE_LIMIT_WINDOW_SECONDS
-    window = max(MIN_RATE_LIMIT_WINDOW_SECONDS, window)
-    content = RATE_LIMIT_MESSAGE_TEMPLATE.format(window=window)
-    try:
-        await bot.send_group_message(group_id, content)
-    except Exception as exc:  # noqa: BLE001
-        bot.log(f"warning: failed to send rate-limit message: {exc}")
+            await asyncio.wait_for(
+                bot._shutdown.wait(), timeout=bot.settings.cadence_seconds
+            )
+        except asyncio.TimeoutError:
+            pass
 
 
 @bot.command("/snapshot")

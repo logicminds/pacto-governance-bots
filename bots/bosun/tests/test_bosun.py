@@ -37,6 +37,7 @@ def _make_bot(monkeypatch, **kwargs):
     monkeypatch.setattr(bot, "settings", settings)
     monkeypatch.setattr(bot, "_handler_id", None)
     monkeypatch.setattr(bot, "_own_pubkeys", None)
+    monkeypatch.setattr(bot, "_rate_limit_cache", {})
     # Provide a fresh shutdown event tied to the current test loop.
     monkeypatch.setattr(bot, "_shutdown", asyncio.Event())
     return bot
@@ -234,7 +235,7 @@ async def test_trigger_once_exits_non_zero_on_send_failure(monkeypatch):
 async def test_cadence_loop_skips_when_not_registered(monkeypatch):
     from bosun.bosun import cadence_loop
 
-    b = _make_bot()
+    b = _make_bot(monkeypatch)
     b.settings.cadence_seconds = 0.1
     snapshots = []
 
@@ -258,7 +259,7 @@ async def test_cadence_loop_exits_on_shutdown(monkeypatch):
     """cadence_loop returns promptly when the SDK's shutdown event is set."""
     from bosun.bosun import cadence_loop
 
-    b = _make_bot()
+    b = _make_bot(monkeypatch)
     b.settings.cadence_seconds = 10.0  # long sleep that we should not wait for
 
     async def fake_snapshot(bot):
@@ -276,8 +277,8 @@ async def test_cadence_loop_exits_on_shutdown(monkeypatch):
     assert True
 
 
-def test_bosunbot_registers_with_group_message_capabilities():
-    b = _make_bot()
+def test_bosunbot_registers_with_group_message_capabilities(monkeypatch):
+    b = _make_bot(monkeypatch)
     assert "ReadMessages" in b.capabilities
     assert "SendMessages" in b.capabilities
     assert "SendGroupMessages" in b.capabilities
