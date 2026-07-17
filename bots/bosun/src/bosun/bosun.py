@@ -27,6 +27,7 @@ from bosun.config import format_settings_error, load_settings
 from bosun.formatter import format_snapshot
 from bosun.reader import GovernanceReader
 from bosun.types import SnapshotData
+from bosun.version import full_version
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +39,14 @@ MIN_RATE_LIMIT_WINDOW_SECONDS = 1
 RATE_LIMIT_MESSAGE_TEMPLATE = (
     "> Rate limit: one snapshot per minute per Squad. "
     "Try again in ~{window} seconds."
+)
+SQUAD_JOIN_MESSAGE = (
+    "Ahoy! I'm **{bot_id}**, the Pacto governance snapshot bot. "
+    "I've joined this Squad and I'm ready to post on-chain governance snapshots on demand.\n\n"
+    "To request a snapshot:\n"
+    "- Type `!snapshot` in this Squad channel.\n"
+    "- DM me `!snapshot <squad-id>`.\n\n"
+    "I'll also post a snapshot automatically once per day when cadence is enabled."
 )
 RPC_TIMEOUT_SECONDS = 10.0
 SNAPSHOT_LOCK_TIMEOUT_SECONDS = 30.0
@@ -59,6 +68,7 @@ class BosunBot(Bot):
                 "ReceiveGroupMessages",
             ],
             event_types=["dm_received", "mls_group_message_received"],
+            version=full_version(),
             **kwargs,
         )
         # When the daemon restarts, the old handler id and reconnect token are
@@ -514,6 +524,36 @@ async def snapshot_handler(event, bot):
 @bot.default
 async def unknown(event, bot):
     bot.log(f"ignoring unknown command: event_id={event.event_id}")
+    return bot.ignore(event)
+
+
+@bot.on_squad_join
+async def squad_join_handler(event, bot):
+    """Announce the bot when it joins a Squad."""
+    chat_id = getattr(event, "chat_id", None)
+    if not chat_id:
+        bot.log(
+            f"warning: mls_welcome_received without chat_id: event_id={event.event_id}"
+        )
+        return bot.ignore(event)
+
+    try:
+        content = SQUAD_JOIN_MESSAGE.format(bot_id=bot.bot_id)
+    except Exception as exc:  # noqa: BLE001
+        bot.log(f"error: failed to format squad join message: {exc}")
+        return bot.ignore(event)
+
+    try:
+        await bot.send_group_message(chat_id, content)
+        bot.log(f"info: announced join to {chat_id}")
+    except (PactoClientError, TransportDisconnected, asyncio.TimeoutError) as exc:
+        bot.log(
+            f"warning: failed to send squad join announcement: "
+            f"group_id={chat_id} error={type(exc).__name__}: {exc}"
+        )
+    except Exception as exc:  # noqa: BLE001
+        bot.log(f"error: unexpected squad join announcement failure: {exc}")
+
     return bot.ignore(event)
 
 
