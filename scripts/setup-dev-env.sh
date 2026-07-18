@@ -196,19 +196,9 @@ PACTO_DEV_ENV_DIR="${PACTO_DEV_ENV_DIR}" ./scripts/generate-env.sh
 # 6. Restart bosun with the updated environment.
 # ---------------------------------------------------------------------------
 info "Restarting bosun container..."
-export PACTO_GOVERNANCE_GROUP_ID="${GROUP_ID}"
 cd "${REPO_ROOT}"
 docker compose up -d --force-recreate bosun
 
 ok "bosun restarted"
 
-info "Waiting a few seconds for the first snapshot attempt..."
-sleep 8
-
-if docker logs --tail 20 bosun-bosun-1 2>&1 | grep -q "posted snapshot:"; then
-    ok "bosun successfully posted a snapshot to the MLS group"
-else
-    warn "bosun has not posted a snapshot yet; check logs with: docker logs --tail 30 bosun-bosun-1"
-fi
-
-ok "Setup complete. Run './scripts/health-check.sh' to verify."
+info "Setup complete. Run './scripts/health-check.sh' to verify."

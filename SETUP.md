@@ -76,8 +76,8 @@ make env
 ```
 
 This reads `../pacto-dev-env/data/deployments/31337/full-system.json` and writes
-`bots/bosun/.env` with the registry, Hats, RPC, and socket values. Fill in the
-optional `GROUP_ID` and any overrides, then start the bot:
+`bots/bosun/.env` with the registry, Hats, RPC, and socket values. Apply any
+overrides, then start the bot:
 
 ```bash
 docker compose up -d

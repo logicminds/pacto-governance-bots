@@ -1,8 +1,4 @@
-"""Unit tests for the bosun bot wiring, trigger modes, and inbound
-``!snapshot`` event handlers.
-
-Slash-command tests for ``/snapshot`` live in ``test_handlers.py``.
-"""
+"""Unit tests for the bosun bot wiring and inbound ``!snapshot`` event handlers."""
 
 from __future__ import annotations
 
@@ -11,7 +7,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from bosun import bot, is_squad_member, snapshot, trigger_once
+from bosun import bot, is_squad_member, snapshot
 from bosun.config import Settings
 from pacto_bot_sdk import AgentEventParams, AgentRateLimitedParams, PactoClientError
 
@@ -30,7 +26,6 @@ def _make_bot(monkeypatch, **kwargs):
     settings = Settings(
         rpc_url="http://localhost:8545",
         bot_id="bosun",
-        group_id="test-group",
         daemon_socket="/tmp/pacto-test.sock",
         **kwargs,
     )
@@ -115,7 +110,7 @@ async def test_snapshot_posts_group_message(monkeypatch):
     monkeypatch.setattr(b, "send_group_message", fake_send)
     monkeypatch.setattr("bosun.bosun.GovernanceReader", _FakeReader)
 
-    result = await snapshot(b)
+    result = await snapshot(b, group_id="test-group")
     assert result is not None
     assert len(sent) == 1
     assert sent[0][0] == "test-group"
@@ -133,148 +128,9 @@ async def test_snapshot_does_not_send_on_read_failure(monkeypatch):
     monkeypatch.setattr(b, "send_group_message", fake_send)
     monkeypatch.setattr("bosun.bosun.GovernanceReader", _FailingReader)
 
-    result = await snapshot(b)
+    result = await snapshot(b, group_id="test-group")
     assert result is None
     assert sent == []
-
-
-@pytest.mark.asyncio
-async def test_trigger_once_connects_and_posts(monkeypatch):
-    b = _make_bot(monkeypatch)
-    connected = []
-    closed = []
-    published = []
-    sent = []
-
-    async def fake_connect():
-        connected.append(True)
-
-    async def fake_close():
-        closed.append(True)
-
-    async def fake_publish(bot_id):
-        published.append(bot_id)
-        return "kp"
-
-    async def fake_register(*args, **kwargs):
-        return type(
-            "RegisterResult",
-            (),
-            {
-                "handler_id": "test-handler-id",
-                "reconnect_token": "test-reconnect-token",
-                "own_pubkeys": ["test-pubkey"],
-                "registered_events": [],
-            },
-        )()
-
-    async def fake_send(group_id, content):
-        sent.append((group_id, content))
-        return "msg"
-
-    async def fake_register(**kwargs):
-        return type("_Reg", (), {"handler_id": "hid-1", "reconnect_token": "rt-1"})()
-
-    monkeypatch.setattr(b.client, "connect", fake_connect)
-    monkeypatch.setattr(b.client, "close", fake_close)
-    monkeypatch.setattr(b.client, "handler_register", fake_register)
-    monkeypatch.setattr(b.client, "agent_publish_key_package", fake_publish)
-    monkeypatch.setattr(b, "send_group_message", fake_send)
-    monkeypatch.setattr("bosun.bosun.GovernanceReader", _FakeReader)
-
-    code = await trigger_once(b)
-    assert code == 0
-    assert connected and closed
-    assert published == ["bosun"]
-    assert len(sent) == 1
-
-
-@pytest.mark.asyncio
-async def test_trigger_once_exits_non_zero_on_send_failure(monkeypatch):
-    b = _make_bot(monkeypatch)
-
-    async def fake_connect():
-        pass
-
-    async def fake_close():
-        pass
-
-    async def fake_publish(bot_id):
-        return "kp"
-
-    async def fake_register(*args, **kwargs):
-        return type(
-            "RegisterResult",
-            (),
-            {
-                "handler_id": "test-handler-id",
-                "reconnect_token": "test-reconnect-token",
-                "own_pubkeys": ["test-pubkey"],
-                "registered_events": [],
-            },
-        )()
-
-    async def fake_send(*args, **kwargs):
-        raise RuntimeError("daemon error")
-
-    async def fake_register(**kwargs):
-        return type("_Reg", (), {"handler_id": "hid-1", "reconnect_token": "rt-1"})()
-
-    monkeypatch.setattr(b.client, "connect", fake_connect)
-    monkeypatch.setattr(b.client, "close", fake_close)
-    monkeypatch.setattr(b.client, "handler_register", fake_register)
-    monkeypatch.setattr(b.client, "agent_publish_key_package", fake_publish)
-    monkeypatch.setattr(b, "send_group_message", fake_send)
-    monkeypatch.setattr("bosun.bosun.GovernanceReader", _FakeReader)
-
-    code = await trigger_once(b)
-    assert code == 1
-
-
-@pytest.mark.asyncio
-async def test_cadence_loop_skips_when_not_registered(monkeypatch):
-    from bosun.bosun import cadence_loop
-
-    b = _make_bot(monkeypatch)
-    b.settings.cadence_seconds = 0.1
-    snapshots = []
-
-    async def fake_snapshot(bot):
-        snapshots.append(True)
-
-    monkeypatch.setattr("bosun.bosun.snapshot", fake_snapshot)
-    # Do not set _handler_id, so cadence should skip.
-    task = asyncio.create_task(cadence_loop(b))
-    await asyncio.sleep(0.2)
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
-    assert snapshots == []
-
-
-@pytest.mark.asyncio
-async def test_cadence_loop_exits_on_shutdown(monkeypatch):
-    """cadence_loop returns promptly when the SDK's shutdown event is set."""
-    from bosun.bosun import cadence_loop
-
-    b = _make_bot(monkeypatch)
-    b.settings.cadence_seconds = 10.0  # long sleep that we should not wait for
-
-    async def fake_snapshot(bot):
-        return None
-
-    monkeypatch.setattr("bosun.bosun.snapshot", fake_snapshot)
-    b._handler_id = "registered"
-
-    task = asyncio.create_task(cadence_loop(b))
-    # Give the loop time to start its first tick, then signal shutdown.
-    await asyncio.sleep(0.05)
-    b._shutdown.set()
-
-    await task
-    assert True
 
 
 def test_bosunbot_registers_with_group_message_capabilities(monkeypatch):
@@ -640,23 +496,6 @@ async def test_snapshot_empty_group_id_skips_send(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_snapshot_empty_group_id_none_destination(monkeypatch):
-    b = _make_bot(monkeypatch)
-    b.settings.group_id = ""
-    sent = []
-
-    async def fake_send(*args, **kwargs):
-        sent.append(args)
-
-    monkeypatch.setattr(b, "send_group_message", fake_send)
-    monkeypatch.setattr("bosun.bosun.GovernanceReader", _FakeReader)
-
-    result = await snapshot(b)
-    assert result is None
-    assert sent == []
-
-
-@pytest.mark.asyncio
 async def test_dm_snapshot_loose_prefix_ignored(monkeypatch):
     b = _make_bot(monkeypatch)
     snapshots = []
@@ -726,27 +565,6 @@ async def test_rate_limited_window_negative_clamped(monkeypatch):
         AgentRateLimitedParams(bot_id="bosun", group_id="squad-1", window_seconds=-10)
     )
     assert sent and "~1 second" in sent[0]
-
-
-@pytest.mark.asyncio
-async def test_dm_snapshot_slash_command_still_works(monkeypatch):
-    snapshots = []
-
-    async def fake_snapshot(bot, group_id=None):
-        snapshots.append((bot, group_id))
-
-    b = _make_bot(monkeypatch)
-    monkeypatch.setattr("bosun.bosun.snapshot", fake_snapshot)
-
-    event = _FakeEvent(type="dm_received", content="/snapshot", chat_id="dm-chat-id")
-    with _capture_handler_response(b) as responses:
-        await b._handle_event(event)
-
-    assert len(snapshots) == 1
-    assert snapshots[0][1] is None
-    assert len(responses) == 1
-    assert responses[0][1].get("action") == "reply"
-    assert "Snapshot posted" in responses[0][1].get("content", "")
 
 
 @pytest.mark.asyncio

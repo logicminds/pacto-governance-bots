@@ -31,7 +31,6 @@ Set the required variables, for example:
 
   export PACTO_GOVERNANCE_RPC_URL="https://sepolia.infura.io/v3/YOUR_PROJECT_ID"
   export PACTO_GOVERNANCE_BOT_ID="bosun"
-  export PACTO_GOVERNANCE_GROUP_ID="your-squad-group-id"
   export PACTO_GOVERNANCE_DAEMON_SOCKET="/run/pacto/pacto-bot-api.sock"
 
 Or copy bots/bosun/.env.example to .env and fill in the values."""
@@ -80,7 +79,6 @@ class Settings(BaseSettings):
     # Required
     rpc_url: str = Field(description="JSON-RPC endpoint for the target EVM chain")
     bot_id: str = Field(description="Bot identity registered with the daemon")
-    group_id: str = Field(description="MLS Squad group id to post snapshots into")
 
     # Optional with defaults
     squad_index: int = Field(default=0, description="Registry deployment index")
@@ -106,7 +104,6 @@ class Settings(BaseSettings):
     )
     registry: str = Field(default=SEPOLIA_REGISTRY, description="NavePirataRegistry address")
     hats: str = Field(default=SEPOLIA_HATS, description="Hats Protocol contract address")
-    cadence_seconds: int = Field(default=86_400, description="Seconds between automatic snapshots")
     config_file: str | None = Field(
         default=None, description="Optional JSON config overlay file"
     )

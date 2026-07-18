@@ -14,8 +14,8 @@ services:
       PACTO_GOVERNANCE_RPC_URL: ${PACTO_GOVERNANCE_RPC_URL:-http://anvil:8545}
       PACTO_GOVERNANCE_DAEMON_SOCKET: ${PACTO_GOVERNANCE_DAEMON_SOCKET:-/var/lib/pacto-bot-api/pacto-bot-api.sock}
       PACTO_GOVERNANCE_SQUAD_INDEX: ${PACTO_GOVERNANCE_SQUAD_INDEX:-0}
-      # PACTO_GOVERNANCE_GROUP_ID, CAPTAIN, CREW_CANDIDATES, PROPOSER_CANDIDATES,
-      # REGISTRY, and HATS are loaded from bots/bosun/.env via env_file.
+      # CAPTAIN, CREW_CANDIDATES, PROPOSER_CANDIDATES, REGISTRY, and HATS are
+      # loaded from bots/bosun/.env via env_file.
     networks:
       - pacto
     volumes:

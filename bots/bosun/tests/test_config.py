@@ -13,7 +13,6 @@ def _set_required(monkeypatch, **extra):
     base = {
         "PACTO_GOVERNANCE_RPC_URL": "http://localhost:8545",
         "PACTO_GOVERNANCE_BOT_ID": "bosun",
-        "PACTO_GOVERNANCE_GROUP_ID": "test-group",
         "PACTO_GOVERNANCE_DAEMON_SOCKET": "/tmp/pacto-test.sock",
         # Pin optional defaults so a local .env file does not make the test flaky.
         "PACTO_GOVERNANCE_REGISTRY": SEPOLIA_REGISTRY,
@@ -43,7 +42,6 @@ def test_settings_loads_from_env(monkeypatch):
     settings = Settings()
     assert settings.rpc_url == "http://localhost:8545"
     assert settings.bot_id == "bosun"
-    assert settings.group_id == "test-group"
     assert settings.daemon_socket == "/tmp/pacto-test.sock"
     assert settings.squad_index == 0
     assert settings.registry == SEPOLIA_REGISTRY
@@ -116,7 +114,6 @@ def test_settings_missing_required_raises(monkeypatch):
     # non-empty URL validator fires.
     monkeypatch.setenv("PACTO_GOVERNANCE_RPC_URL", "")
     monkeypatch.setenv("PACTO_GOVERNANCE_BOT_ID", "bosun")
-    monkeypatch.setenv("PACTO_GOVERNANCE_GROUP_ID", "test-group")
     monkeypatch.setenv("PACTO_GOVERNANCE_DAEMON_SOCKET", "/tmp/pacto-test.sock")
     with pytest.raises(ValueError):
         Settings()

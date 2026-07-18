@@ -7,9 +7,8 @@ Bosun is a Python bot handler for the [`pacto-bot-api`](https://github.com/coven
 - Connects to the `pacto-bot-api` daemon over Unix socket or HTTP.
 - Reads public Pacto-governance state from a configured EVM RPC endpoint (Sepolia or anvil).
 - Formats a Markdown snapshot covering active proposals, upcoming crew deadlines, treasury balances, active mutinies, captain/crew state, and suggested prompts.
-- Responds to `/snapshot` slash commands and `!snapshot` messages in Squad channels.
+- Responds to `!snapshot` messages in Squad channels.
 - Posts snapshots on demand via `agent.send_group_message`.
-- Supports a `--trigger-snapshot` flag that connects, publishes its KeyPackage, posts one snapshot, and exits.
 
 ## Repository layout
 
@@ -67,8 +66,7 @@ make health-check    # verify the integration is alive
 ```
 
 This writes registry, Hats, RPC, and daemon-socket placeholders into
-`bots/bosun/.env`. Set `PACTO_GOVERNANCE_GROUP_ID` manually or export it before
-starting the bot. Set `PRESERVE_ENV=1 make env` to keep an existing `.env`.
+`bots/bosun/.env`. Set `PRESERVE_ENV=1 make env` to keep an existing `.env`.
 
 ## Setup
 
@@ -111,8 +109,7 @@ make env
 It reads `../pacto-dev-env/data/deployments/31337/full-system.json`
 (respecting `PACTO_DEV_ENV_DIR`) and writes `bots/bosun/.env` with the
 deployed registry and Hats addresses, the anvil RPC endpoint, and the daemon
-socket path. Set `PRESERVE_ENV=1` to keep an already-edited `.env`. Then add
-the missing values (at least `PACTO_GOVERNANCE_GROUP_ID`).
+socket path. Set `PRESERVE_ENV=1` to keep an already-edited `.env`.
 
 For non-local deployments, copy the example file and fill in the real values:
 
@@ -127,7 +124,6 @@ Required:
 |---|---|
 | `PACTO_GOVERNANCE_RPC_URL` | JSON-RPC endpoint (Sepolia or anvil) |
 | `PACTO_GOVERNANCE_BOT_ID` | Bot identity registered with the daemon (`bosun`) |
-| `PACTO_GOVERNANCE_GROUP_ID` | MLS Squad group id to post into |
 | `PACTO_GOVERNANCE_DAEMON_SOCKET` **or** `PACTO_GOVERNANCE_DAEMON_HTTP` | Daemon transport |
 
 If using HTTP transport, also set `PACTO_GOVERNANCE_HTTP_SECRET`.
@@ -181,17 +177,6 @@ python -m bosun
 The bot will register with the daemon and wait for incoming commands and Squad
 messages.
 
-## Manual trigger (Phase 1 testing)
-
-To post a single snapshot on demand:
-
-```bash
-source .venv/bin/activate
-python -m bosun --trigger-snapshot
-```
-
-This connects, publishes the KeyPackage, posts one snapshot, and exits.
-
 ## Testing
 
 Run the unit tests (no daemon, anvil, or relay required):
@@ -200,7 +185,6 @@ Run the unit tests (no daemon, anvil, or relay required):
 source .venv/bin/activate
 PACTO_GOVERNANCE_RPC_URL=http://localhost:8545 \
 PACTO_GOVERNANCE_BOT_ID=bosun \
-PACTO_GOVERNANCE_GROUP_ID=test-group \
 PACTO_GOVERNANCE_DAEMON_SOCKET=/tmp/pacto-test.sock \
 pytest bots/bosun/tests
 ```
@@ -234,8 +218,8 @@ The daemon decrypts the group message and delivers it to the bot as an
 `mls_group_message_received` event. Bosun reads the message, confirms the
 author is not the bot itself (when the bot's own pubkey is known), and posts a
 fresh governance snapshot back to the same Squad using `event.chat_id` as the
-destination. The same `snapshot()` coroutine used by the `/snapshot` command
-and the inbound handlers is invoked, so the output is identical.
+destination. The same `snapshot()` coroutine used by the other inbound handlers
+is invoked, so the output is identical.
 
 Messages that are not exactly `!snapshot` (after whitespace trimming) are
 ignored silently. If a group message arrives without a `chat_id`, the bot logs
@@ -269,10 +253,7 @@ Bosun verifies the sender's membership in the referenced Squad by calling
 member does the bot post the snapshot to that Squad. If membership verification
 fails, an error occurs, or the DM does not include a squad identifier, the bot
 logs a warning and does not send a snapshot. A plain `!snapshot` DM with no squad
-id falls through to the existing slash-command handling.
-
-The existing `/snapshot` DM slash command and the `--trigger-snapshot` CLI flag
-continue to work unchanged.
+id is ignored.
 
 ### Configuration
 
