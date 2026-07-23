@@ -36,6 +36,5 @@ jobs:
         env:
           PACTO_GOVERNANCE_RPC_URL: http://localhost:8545
           PACTO_GOVERNANCE_BOT_ID: bosun
-          PACTO_GOVERNANCE_GROUP_ID: test-group
           PACTO_GOVERNANCE_DAEMON_SOCKET: /tmp/pacto-test.sock
         run: pytest bots/bosun/tests

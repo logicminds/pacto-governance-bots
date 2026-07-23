@@ -57,13 +57,9 @@ build: ## Build the bot container image
 run-local: install ## Run the bot locally using the venv
 	$(VENV)/bin/python -m bosun
 
-trigger-snapshot: install ## Post a single snapshot and exit (no cadence loop)
-	$(VENV)/bin/python -m bosun --trigger-snapshot
-
 test: install-dev ## Run the bot unit/integration test suite
 	PACTO_GOVERNANCE_RPC_URL=http://localhost:8545 \
 	PACTO_GOVERNANCE_BOT_ID=bosun \
-	PACTO_GOVERNANCE_GROUP_ID=test-group \
 	PACTO_GOVERNANCE_DAEMON_SOCKET=/tmp/pacto-test.sock \
 	$(VENV)/bin/pytest $(BOT_DIR)/tests -v
 
@@ -71,7 +67,6 @@ validate: install-dev ## Compile source and run the full test suite
 	$(VENV)/bin/python -m compileall $(SRC_DIR)
 	PACTO_GOVERNANCE_RPC_URL=http://localhost:8545 \
 	PACTO_GOVERNANCE_BOT_ID=bosun \
-	PACTO_GOVERNANCE_GROUP_ID=test-group \
 	PACTO_GOVERNANCE_DAEMON_SOCKET=/tmp/pacto-test.sock \
 	$(VENV)/bin/pytest $(BOT_DIR)/tests -v
 

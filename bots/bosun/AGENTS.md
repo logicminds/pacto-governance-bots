@@ -41,8 +41,8 @@ Relevant decorators and helpers for this handler:
 
 1. Read the `python-pacto-bot` skill for the SDK API and patterns.
 2. Open `bots/bosun/bosun.py`.
-3. Use `@bot.command("/name")` to add slash commands or edit existing handlers.
-4. Keep `@bot.default` for unrecognized commands.
+3. Use `@bot.event("mls_group_message_received")` or `@bot.hears("!snapshot")` to add event-driven handlers.
+4. Keep `@bot.default` for unrecognized slash commands.
 5. Run tests:
    ```bash
    cd bots/bosun

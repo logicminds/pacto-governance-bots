@@ -1,13 +1,11 @@
 """Bosun governance snapshot bot.
 
-Registers with the daemon, responds to ``/snapshot`` commands and ``!snapshot``
-text triggers, and posts on-chain governance snapshots to a configured MLS
-Squad channel on demand.
+Registers with the daemon, responds to ``!snapshot`` text triggers, and posts
+on-chain governance snapshots back to the originating MLS Squad channel on demand.
 """
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 import sys
 import time
@@ -46,14 +44,13 @@ SQUAD_JOIN_MESSAGE = (
     "To request a snapshot:\n"
     "- Type `!snapshot` in this Squad channel.\n"
     "- DM me `!snapshot <squad-id>`.\n\n"
-    "I'll also post a snapshot automatically once per day when cadence is enabled."
 )
 RPC_TIMEOUT_SECONDS = 10.0
 SNAPSHOT_LOCK_TIMEOUT_SECONDS = 30.0
 
 
 class BosunBot(Bot):
-    """Small subclass that adds a one-shot trigger flag to the base Bot."""
+    """Small subclass that keeps handler-side settings and the KeyPackage loop."""
 
     def __init__(self, settings: Any, **kwargs: Any) -> None:
         self.settings = settings
@@ -97,12 +94,11 @@ class BosunBot(Bot):
     # -----------------------------------------------------------------------
     # Internal SDK dispatch hooks
     #
-    # These overrides deviate from the public decorator API because the SDK
-    # only routes slash commands (``/snapshot``). Text triggers like
-    # ``!snapshot`` are not exposed as a decorator-managed command surface, so
-    # we intercept ``agent.event`` here, handle the bosun-specific triggers,
-    # and delegate everything else to the base class. See the Phase 2 plan
-    # doc for the rationale and risk record.
+    # These overrides deviate from the public decorator API because plaintext
+    # commands like ``!snapshot`` are not exposed as a decorator-managed command
+    # surface, so we intercept ``agent.event`` here, handle the bosun-specific
+    # triggers, and delegate everything else to the base class. See the Phase 2
+    # plan doc for the rationale and risk record.
     # -----------------------------------------------------------------------
 
     async def _handle_event(self, event: AgentEventParams) -> None:
@@ -112,8 +108,7 @@ class BosunBot(Bot):
           originating Squad.
         - ``dm_received`` with ``!snapshot <squad-id>`` verifies membership before
           triggering a snapshot in that Squad.
-        - All other events (including the existing ``/snapshot`` slash command)
-          are delegated to the base class.
+        - All other events are delegated to the base class.
         """
         event_id = getattr(event, "event_id", None)
         if not event_id:
@@ -374,7 +369,7 @@ class BosunBot(Bot):
         await self._run(argv)
 
     def run(self, argv: list[str] | None = None) -> None:
-        """Parse CLI args, publish KeyPackage, and run dispatch + cadence."""
+        """Parse CLI args, publish KeyPackage, and run the dispatch loop."""
         try:
             sys.exit(asyncio.run(self.amain(argv)))
         except KeyboardInterrupt:
@@ -408,30 +403,9 @@ class BosunBot(Bot):
         if args.log_level is not None:
             self._logger.set_level(args.log_level)
 
-        if getattr(args, "trigger_snapshot", False):
-            return await trigger_once(self)
-
         await setup(self)
-        await asyncio.gather(self.run_async(), self._key_package_loop(), cadence_loop(self))
+        await asyncio.gather(self.run_async(), self._key_package_loop())
         return 0
-    def _parse_args(self, argv: list[str] | None = None) -> argparse.Namespace:
-        """Parse CLI arguments, including the bosun-specific trigger flag.
-
-        The base ``Bot`` parser owns retry/circuit/transport options; we
-        pre-parse only our custom flag so those options remain available and
-        forward-compatible with SDK updates.
-        """
-        pre_parser = argparse.ArgumentParser(add_help=False)
-        pre_parser.add_argument(
-            "--trigger-snapshot",
-            action="store_true",
-            default=False,
-            help="Connect, publish KeyPackage, post one snapshot, and exit.",
-        )
-        pre_args, remaining_argv = pre_parser.parse_known_args(argv)
-        args = super()._parse_args(remaining_argv)
-        args.trigger_snapshot = pre_args.trigger_snapshot
-        return args
 
 
 # Module-level bot instance so the decorator API works and tests can import it.
@@ -448,10 +422,9 @@ async def is_squad_member(bot: BosunBot, group_id: str, member_pubkey: str) -> b
     return await bot.is_squad_member(group_id, member_pubkey)
 
 
-async def snapshot(bot: BosunBot, group_id: str | None = None) -> SnapshotData | None:
-    """Read governance state, format it, and post to the configured group."""
-    destination = group_id if group_id is not None else bot.settings.group_id
-    if not destination:
+async def snapshot(bot: BosunBot, group_id: str) -> SnapshotData | None:
+    """Read governance state, format it, and post it to the given Squad."""
+    if not group_id:
         bot.log("warning: refusing snapshot with empty group_id")
         return None
     settings = bot.settings
@@ -471,8 +444,8 @@ async def snapshot(bot: BosunBot, group_id: str | None = None) -> SnapshotData |
 
     markdown = format_snapshot(data)
     try:
-        await bot.send_group_message(destination, markdown)
-        bot.log(f"posted snapshot to {destination}")
+        await bot.send_group_message(group_id, markdown)
+        bot.log(f"posted snapshot to {group_id}")
     except Exception as exc:  # noqa: BLE001
         bot.log(f"error: failed to send group message: {exc}")
         return None
@@ -487,38 +460,6 @@ async def setup(bot: BosunBot) -> None:
         bot.log(f"published KeyPackage: {result}")
     except Exception as exc:  # noqa: BLE001
         bot.log(f"warning: failed to publish KeyPackage: {exc}")
-
-
-async def cadence_loop(bot: BosunBot) -> None:
-    """Fire the snapshot routine at the configured interval.
-
-    Skips ticks when the bot is not yet registered/connected, and exits
-    promptly when the SDK's shutdown event is set (e.g. on SIGINT/SIGTERM).
-    """
-    await asyncio.sleep(0.5)
-
-    while not bot._shutdown.is_set():
-        if not getattr(bot, "_handler_id", None):
-            bot.log("cadence: not registered yet, skipping tick")
-        else:
-            try:
-                await snapshot(bot)
-            except Exception as exc:  # noqa: BLE001
-                bot.log(f"cadence tick failed: {exc}")
-        try:
-            await asyncio.wait_for(
-                bot._shutdown.wait(), timeout=bot.settings.cadence_seconds
-            )
-        except asyncio.TimeoutError:
-            pass
-
-
-@bot.command("/snapshot")
-async def snapshot_handler(event, bot):
-    """Handle an explicit ``/snapshot`` command."""
-    bot.log(f"received /snapshot: event_id={event.event_id}")
-    await snapshot(bot)
-    return bot.reply(event, "Snapshot posted to the squad channel.")
 
 
 @bot.default
@@ -555,33 +496,6 @@ async def squad_join_handler(event, bot):
         bot.log(f"error: unexpected squad join announcement failure: {exc}")
 
     return bot.ignore(event)
-
-
-async def trigger_once(bot: BosunBot) -> int:
-    """Connect, register, publish KeyPackage, post a snapshot, and exit."""
-    await bot.client.connect()
-    try:
-        result = await bot.client.handler_register(
-            bot_ids=[bot.bot_id],
-            event_types=bot.event_types,
-            capabilities=bot.capabilities,
-        )
-        bot._handler_id = result.handler_id
-        bot._reconnect_token = result.reconnect_token
-        bot.log(f"registered handler_id={result.handler_id}")
-    except (PactoClientError, TimeoutError, asyncio.TimeoutError) as exc:
-        bot.log(f"error: failed to register handler: {exc}")
-        return 1
-
-    try:
-        kp_result = await bot.client.agent_publish_key_package(bot_id=bot.bot_id)
-        bot.log(f"published KeyPackage: {kp_result}")
-    except Exception as exc:  # noqa: BLE001
-        bot.log(f"warning: failed to publish KeyPackage: {exc}")
-
-    data = await snapshot(bot)
-    await bot.client.close()
-    return 0 if data is not None else 1
 
 
 def main() -> None:

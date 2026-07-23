@@ -11,5 +11,4 @@ import os
 
 os.environ.setdefault("PACTO_GOVERNANCE_RPC_URL", "http://localhost:8545")
 os.environ.setdefault("PACTO_GOVERNANCE_BOT_ID", "bosun")
-os.environ.setdefault("PACTO_GOVERNANCE_GROUP_ID", "test-group")
 os.environ.setdefault("PACTO_GOVERNANCE_DAEMON_SOCKET", "/tmp/pacto-test.sock")
